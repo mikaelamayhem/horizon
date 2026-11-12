@@ -65,11 +65,11 @@ pub(super) struct Pads {
     context: Option<Context>,
     blocked_sticks: [bool; 2],
     /// Releases use the action that received the press, even after a rebind.
-    actions: [Vec<&'static str>; 16],
+    actions: [Vec<&'static str>; Button::ALL.len()],
     /// The game tick each button went down in, and releases held back until
     /// a tick has passed: vanilla samples keys once per tick, so a click
     /// shorter than that (a quick stick click for sprint) would be lost.
-    pressed_at: [Option<u64>; 16],
+    pressed_at: [Option<u64>; Button::ALL.len()],
     late_releases: Vec<Button>,
     /// The merged state of the last poll.
     pub(super) state: PadState,
