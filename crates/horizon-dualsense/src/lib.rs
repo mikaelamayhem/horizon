@@ -9,6 +9,8 @@
 //! the byte 0xA2) closes it.
 pub mod device;
 #[cfg(not(target_os = "ios"))]
+pub mod finder;
+#[cfg(not(target_os = "ios"))]
 pub mod haptics;
 #[cfg(target_os = "ios")]
 #[path = "haptics_stub.rs"]
@@ -70,6 +72,20 @@ const LIGHTBAR_LIGHT_OUT: u8 = 1 << 1;
 pub const PLAYER_LEDS_INSTANT: u8 = 1 << 5;
 /// The middle LED: player 1.
 pub const PLAYER_1: u8 = 1 << 2;
+
+/// The player LEDs for player `seat` (1 to 5), as a host lights them (`hid-playstation.c`'s
+/// `player_ids`): 1 the middle, 2 the inner pair, 3 the middle and outer, 4 the outer and inner
+/// pairs, 5 all.
+pub fn player_leds(seat: usize) -> u8 {
+    const IDS: [u8; 5] = [
+        1 << 2,
+        (1 << 3) | (1 << 1),
+        (1 << 4) | (1 << 2) | 1,
+        (1 << 4) | (1 << 3) | (1 << 1) | 1,
+        0x1f,
+    ];
+    IDS[seat.clamp(1, 5) - 1]
+}
 /// The blue a host gives a first pad (`hid-playstation.c`), restored when Horizon lets go.
 pub const DEFAULT_LIGHTBAR: [u8; 3] = [0, 0, 128];
 

@@ -9,6 +9,8 @@ use crate::{DEFAULT_LIGHTBAR, Output, PLAYER_1, Vibration, is_dualsense};
 use crate::{TRIGGER_OFF, TriggerEffect};
 #[cfg(not(target_os = "ios"))]
 use hidapi::{BusType, HidApi, HidDevice, HidResult};
+#[cfg(not(target_os = "ios"))]
+use std::ffi::{CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 #[cfg(not(target_os = "ios"))]
@@ -50,6 +52,14 @@ pub fn bluetooth_allowed() -> bool {
 impl DualSense {
     /// The first DualSense hidapi lists, USB before Bluetooth (as SDL); `None` when there is
     /// none, an error when it can't be opened (Linux without access to its hidraw node).
+    /// The DualSense at `path` (one [`Finder`](crate::finder::Finder) found), if it is still there.
+    pub fn open_path(api: &HidApi, path: &CStr) -> Option<HidResult<Self>> {
+        let info = api
+            .device_list()
+            .find(|d| is_dualsense(d.vendor_id(), d.product_id()) && d.path() == path)?;
+        Some(Self::open_info(api, info))
+    }
+
     /// `bluetooth`: whether a pad on Bluetooth may be opened ([`bluetooth_allowed`]).
     pub fn open(api: &HidApi, bluetooth: bool) -> Option<HidResult<Self>> {
         static SKIPPED: AtomicBool = AtomicBool::new(false);
@@ -68,11 +78,15 @@ impl DualSense {
                 return None;
             }
         };
+        Some(Self::open_info(api, info))
+    }
+
+    fn open_info(api: &HidApi, info: &hidapi::DeviceInfo) -> HidResult<Self> {
         let transport = match info.bus_type() {
             BusType::Bluetooth => Transport::Bluetooth,
             _ => Transport::Usb,
         };
-        Some(info.open_device(api).map(|device| {
+        info.open_device(api).map(|device| {
             let mut firmware = [0; 64];
             firmware[0] = 0x20;
             let version = match device.get_feature_report(&mut firmware) {
@@ -93,7 +107,7 @@ impl DualSense {
                 calibration,
                 seq: 0,
             }
-        }))
+        })
     }
 
     pub fn transport(&self) -> Transport {
@@ -169,6 +183,8 @@ pub struct Link {
     input: Arc<Mutex<Option<RawInput>>>,
     /// They were last asked for (`read_input`), so asking again sends nothing.
     input_on: AtomicBool,
+    /// The same for the motion (`read_motion`): asking again would restart its sum.
+    motion_on: AtomicBool,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -186,8 +202,20 @@ impl Link {
         Link::start_with(true)
     }
 
+    /// Start the thread for the DualSense at `path` (one [`Finder`](crate::finder::Finder) found): it opens only that
+    /// pad, on Bluetooth too, so each of several pads has its own link.
+    #[cfg(not(target_os = "ios"))]
+    pub fn start_path(path: CString) -> Link {
+        Link::start_with_path(true, Some(path))
+    }
+
     #[cfg(not(target_os = "ios"))]
     fn start_with(bluetooth: bool) -> Link {
+        Link::start_with_path(bluetooth, None)
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    fn start_with_path(bluetooth: bool, path: Option<CString>) -> Link {
         let (tx, rx) = mpsc::channel();
         let open = Arc::new(AtomicU8::new(0));
         let motion = Arc::new(Mutex::new(MotionSum::default()));
@@ -201,6 +229,7 @@ impl Link {
                 let mut writer = Writer::new(shown, read);
                 writer.input = pressed;
                 writer.bluetooth = bluetooth;
+                writer.path = path;
                 writer.run(rx)
             })
             .map_err(|e| log::warn!("Horizon: DualSense output: {e}"))
@@ -211,6 +240,7 @@ impl Link {
             motion,
             input,
             input_on: AtomicBool::new(false),
+            motion_on: AtomicBool::new(false),
             thread,
         }
     }
@@ -224,6 +254,7 @@ impl Link {
             motion: Arc::default(),
             input: Arc::default(),
             input_on: AtomicBool::new(false),
+            motion_on: AtomicBool::new(false),
             thread: None,
         }
     }
@@ -256,7 +287,9 @@ impl Link {
     /// waits on the pad's reports instead of sleeping: nothing more goes over the bus, as the pad
     /// sends them either way.
     pub fn read_motion(&self, on: bool) {
-        self.send(Message::Motion(on));
+        if self.motion_on.swap(on, Ordering::Relaxed) != on {
+            self.send(Message::Motion(on));
+        }
     }
 
     /// The motion since the last call; `None` when no report came in.
@@ -295,6 +328,16 @@ impl Drop for Link {
     }
 }
 
+/// Pads open over Bluetooth, in this game: from [`CROWDED`] on, each writes at most once every
+/// [`CROWDED_GAP`], so their input keeps the radio. Their reports come in as ever (the pads send
+/// them whether anyone reads them or not); only what the game sends back thins out.
+#[cfg(not(target_os = "ios"))]
+static BLUETOOTH_OPEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(not(target_os = "ios"))]
+const CROWDED: usize = 3;
+#[cfg(not(target_os = "ios"))]
+const CROWDED_GAP: Duration = Duration::from_millis(50);
+
 /// Looks for the pad this many more times, a second apart, after a scan finds nothing (its
 /// hidraw node may appear after the controller does).
 #[cfg(not(target_os = "ios"))]
@@ -325,6 +368,13 @@ struct Writer {
     input: Arc<Mutex<Option<RawInput>>>,
     /// A pad on Bluetooth may be opened.
     bluetooth: bool,
+    /// The one pad this thread opens, else the first DualSense.
+    path: Option<CString>,
+    /// The open pad counts in [`BLUETOOTH_OPEN`].
+    counted: bool,
+    last_write: Option<Instant>,
+    /// A write held back while Bluetooth is crowded, sent then.
+    flush_at: Option<Instant>,
 }
 
 /// While the motion sensors are read, the longest a read waits for a report before the thread
@@ -392,6 +442,10 @@ impl Writer {
             reading_input: false,
             input: Arc::default(),
             bluetooth: bluetooth_allowed(),
+            path: None,
+            counted: false,
+            last_write: None,
+            flush_at: None,
             api: None,
             pad: None,
             open,
@@ -414,6 +468,7 @@ impl Writer {
             let waiting = matches!(self.lights, Lights::Waiting(_)) && self.pad.is_some();
             let wake = [
                 self.step_end,
+                self.flush_at,
                 (self.pad.is_none() && self.scans_left > 0).then_some(self.next_scan),
                 waiting.then(|| now + Duration::from_millis(250)),
             ]
@@ -490,6 +545,7 @@ impl Writer {
                 let _ = pad.write(&release);
             }
         }
+        self.count(false);
     }
 
     fn scan(&mut self) {
@@ -500,7 +556,10 @@ impl Writer {
             None => HidApi::new().map(|api| &*self.api.insert(api)),
         };
         let found = match api {
-            Ok(api) => DualSense::open(api, self.bluetooth),
+            Ok(api) => match &self.path {
+                Some(path) => DualSense::open_path(api, path),
+                None => DualSense::open(api, self.bluetooth),
+            },
             Err(e) => {
                 log::warn!("Horizon: DualSense output: {e}");
                 None
@@ -511,6 +570,7 @@ impl Writer {
                 log::info!("DualSense output over {:?}", pad.transport());
                 self.open
                     .store(1 + pad.transport() as u8, Ordering::Relaxed);
+                self.count(pad.transport() == Transport::Bluetooth);
                 self.lights = match pad.transport() {
                     Transport::Usb => Lights::Ready,
                     Transport::Bluetooth => {
@@ -623,8 +683,18 @@ impl Writer {
         }
         let sent = self.sent;
         if sent == Some((state, motors)) {
+            self.flush_at = None;
             return;
         }
+        if self.counted
+            && BLUETOOTH_OPEN.load(Ordering::Relaxed) >= CROWDED
+            && let Some(last) = self.last_write
+            && last.elapsed() < CROWDED_GAP
+        {
+            self.flush_at = Some(last + CROWDED_GAP);
+            return;
+        }
+        self.flush_at = None;
         // Every report carries the motors: one without them stops the rumble.
         let mut first = Output {
             rumble: motors,
@@ -683,6 +753,18 @@ impl Writer {
         }
     }
 
+    /// Count the open pad in [`BLUETOOTH_OPEN`] while it is on Bluetooth, once.
+    fn count(&mut self, bluetooth: bool) {
+        if bluetooth != self.counted {
+            self.counted = bluetooth;
+            if bluetooth {
+                BLUETOOTH_OPEN.fetch_add(1, Ordering::Relaxed);
+            } else {
+                BLUETOOTH_OPEN.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+
     fn clear_input(&mut self) {
         if let Ok(mut input) = self.input.lock() {
             *input = None;
@@ -700,7 +782,10 @@ impl Writer {
             None => return false,
         };
         match result {
-            Ok(()) => true,
+            Ok(()) => {
+                self.last_write = Some(Instant::now());
+                true
+            }
             Err(e) => {
                 self.lost(&e.to_string());
                 false
@@ -712,6 +797,7 @@ impl Writer {
     /// unplugged may come back. Nothing is written through the old handle.
     fn lost(&mut self, why: &str) {
         log::info!("DualSense output closed: {why}");
+        self.count(false);
         self.pad = None;
         self.sent = None;
         if let Ok(mut motion) = self.motion.lock() {

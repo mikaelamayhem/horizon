@@ -787,7 +787,10 @@ impl ApplicationHandler for Split<'_> {
         }
         let pad_joins = self.route_pads(false);
         self.turn(0);
+        // Each player borrows its own DualSense's link for its turn: its gyro, touchpad, lights.
+        self.pads.lend_pad(&mut self.host.pad, self.p1_pad.owner);
         self.host.about_to_wait(event_loop);
+        self.pads.return_pad(&mut self.host.pad);
         let mut changed = self.drop_out() | self.admit(event_loop, pad_joins);
         self.follow_pack_answer();
         self.sync_profiles();
@@ -802,7 +805,9 @@ impl ApplicationHandler for Split<'_> {
         let names = self.host.settings.extras.splitscreen_names;
         self.host.split_hud.badge = Some("P1".into());
         self.host.split_hud.names = names;
+        self.host.pad.seat = 1;
         for g in &mut self.guests {
+            g.game.pad.seat = g.seat;
             g.game.split_hud.badge = Some(g.name.clone().unwrap_or_else(|| "New player".into()));
             g.game.split_hud.names = names;
         }
@@ -811,7 +816,10 @@ impl ApplicationHandler for Split<'_> {
             self.turn(i + 1);
             // One set of speakers: P1's volume.
             self.guests[i].game.audio.master = master;
+            let pad = self.guests[i].pad;
+            self.pads.lend_pad(&mut self.guests[i].game.pad, pad);
             self.guests[i].game.about_to_wait(event_loop);
+            self.pads.return_pad(&mut self.guests[i].game.pad);
             // A player's game stops the event loop on an error, as P1's does: say why.
             if let Some(e) = &self.guests[i].game.error {
                 log::error!("Horizon: splitscreen: P{}: {e}", self.guests[i].seat);

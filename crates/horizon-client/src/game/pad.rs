@@ -49,6 +49,8 @@ fn style_named(name: &str) -> Result<GlyphStyle> {
 pub(super) struct Pads {
     /// Splitscreen: this player's pad, read by `PadRouter` for every game, instead of the pads.
     pub(super) feed: Option<PadState>,
+    /// Splitscreen: this player's number (1 to 4), which a DualSense's player LEDs show; 0 is 1.
+    pub(super) seat: usize,
     /// The pad behind `feed`.
     feed_source: Option<PadId>,
     /// The real controllers and the DualSense's output.
@@ -231,6 +233,8 @@ mod hardware {
         }
         pub(in crate::game) fn lend_output(&mut self, _: &mut Pads, _: PadId) {}
         pub(in crate::game) fn reclaim_output(&mut self, _: &mut Pads) {}
+        pub(in crate::game) fn lend_pad(&mut self, _: &mut Pads, _: Option<PadId>) {}
+        pub(in crate::game) fn return_pad(&mut self, _: &mut Pads) {}
         pub(in crate::game) fn play_rumbles(&mut self, _: &mut Pads, _: Option<PadId>) {}
         pub(in crate::game) fn report_status(&self, _: &mut Pads, _: Option<PadId>) {}
         pub(in crate::game) fn connected(&self, _: PadId) -> bool {

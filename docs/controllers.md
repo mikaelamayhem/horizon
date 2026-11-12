@@ -1035,8 +1035,13 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   turns the view to face where it points, over 0.1 s, eased out; held there, rotating it turns the
   view by as much (small rotations smoothed, nothing lost). It turns left and right only: up and
   down are the gyro's. It works on every pad.
-- Splitscreen: the gyro aims for the player whose pad has the DualSense's output, the first
-  DualSense hidapi lists. Several DualSenses each aiming their own player is still to come.
+- Splitscreen: where DualSenses are read directly (Windows), the router opens one link per pad
+  (`horizon-dualsense`'s `finder.rs` lists them every 3 seconds on a thread of its own;
+  `pad/hardware/direct.rs`), and each player borrows its own pad's link for its turn: its gyro,
+  touchpad, rumble and lights are that player's, and the player LEDs show its seat (1 to 4, as a
+  host lights them). The pads' reports are all read, as they come anyway; with three or more pads
+  on Bluetooth, each writes (rumble, lights, triggers) at most every 50 ms so their input keeps the
+  radio. Elsewhere the gyro aims for P1 alone, through the first DualSense hidapi lists.
 
 ## Steam Deck
 

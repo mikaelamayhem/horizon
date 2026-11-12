@@ -18,7 +18,7 @@ const GRACE: Duration = Duration::from_secs(10);
 
 /// Whether this system needs it: elsewhere gilrs lists every DualSense, and the HID scan would
 /// be wasted work. `HORIZON_DUALSENSE_HID=1` turns it on anywhere, `0` off.
-fn wanted() -> bool {
+pub(super) fn wanted() -> bool {
     match std::env::var_os("HORIZON_DUALSENSE_HID") {
         Some(v) => v == "1",
         None => cfg!(windows),
@@ -98,13 +98,16 @@ pub(super) struct Unlisted {
     watch: Watch,
     /// It is the pad being played.
     pub(super) active: bool,
+    /// The splitscreen router's pad it is, while this player borrows its link (`direct.rs`).
+    pub(super) key: Option<u32>,
     /// Something on it was held at the last read, so a press only takes over once.
     touched: bool,
 }
 
 impl Unlisted {
+    /// Its link reads the pad's controls for the game (so nothing else may stop that).
     pub(super) fn reading(&self) -> bool {
-        self.watch.reading()
+        self.watch.reading() || self.key.is_some()
     }
 
     /// The output closed (controllers off, splitscreen took the pads): start again.
@@ -113,18 +116,19 @@ impl Unlisted {
     }
 }
 
-/// Whether to read an unlisted pad: it's wanted on this system and gilrs lists no DualSense.
-pub(super) fn needed(gilrs: &gilrs::Gilrs) -> bool {
-    wanted() && !gilrs.gamepads().any(|(_, p)| is_dualsense(&p))
+/// A DualSense gilrs lists, left alone where the game reads every DualSense directly (so it
+/// isn't two pads).
+pub(super) fn ignored(pad: &gilrs::Gamepad) -> bool {
+    wanted() && is_dualsense(pad)
 }
 
 impl Pads {
     /// An unlisted DualSense's controls, starting its output to read them, and its connection
     /// notices. `None` when gilrs lists a DualSense or none is plugged in.
     pub(super) fn read_unlisted(&mut self) -> Option<PadState> {
-        let needed = needed(self.devices.gilrs.as_ref()?);
+        self.devices.gilrs.as_ref()?;
         let d: &mut Devices = &mut self.devices;
-        if !needed {
+        if !wanted() {
             d.unlisted.watch.stop(d.output.as_ref());
             d.unlisted.reset();
             return None;

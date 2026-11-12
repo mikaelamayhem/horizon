@@ -10,6 +10,7 @@ use horizon_client::gamepad::{self, Button, GlyphStyle, PadState, Rumble, Trigge
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+mod direct;
 mod face_buttons;
 mod hid_layout;
 mod sdl_row;
@@ -238,6 +239,9 @@ impl Pads {
         self.peaks = [[0.0; 2]; 2];
         while let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
             use gilrs::EventType as E;
+            if unlisted::ignored(&gilrs.gamepad(id)) {
+                continue;
+            }
             // The furthest each stick of the active pad leant between the events, which a read
             // after them all misses (`Pads::peaks`).
             if matches!(event, E::AxisChanged(..)) && self.devices.active == Some(id) {
@@ -305,7 +309,7 @@ impl Pads {
                 unlisted.is_some() || gilrs.gamepads().any(|(_, pad)| is_dualsense(&pad));
             self.device = gilrs
                 .gamepads()
-                .next()
+                .find(|(_, pad)| !unlisted::ignored(pad))
                 .map(|(_, pad)| device_of(&pad))
                 .or_else(|| unlisted.map(|_| unlisted::device()));
             return PadState::default();
@@ -412,27 +416,17 @@ fn sticks_of(pad: &gilrs::Gamepad) -> [[f32; 2]; 2] {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::game) enum PadId {
     Listed(gilrs::GamepadId),
-    Unlisted,
+    /// A DualSense the router reads directly, by its key there (`direct.rs`).
+    Unlisted(u32),
 }
 
 impl PadId {
     fn listed(self) -> Option<gilrs::GamepadId> {
         match self {
             PadId::Listed(id) => Some(id),
-            PadId::Unlisted => None,
+            PadId::Unlisted(_) => None,
         }
     }
-}
-
-/// The router's unlisted DualSense, read through its own link while P1 isn't borrowing it.
-#[derive(Default)]
-struct RoutedUnlisted {
-    link: Option<horizon_dualsense::Link>,
-    watch: unlisted::Watch,
-    /// Its controls at the last `events`, for its presses; `None` while it is gone.
-    state: Option<PadState>,
-    /// The link is P1's for its turn (`lend_output`).
-    lent: bool,
 }
 
 /// Splitscreen: one gilrs for every player's game in this process. The split decides which
@@ -445,7 +439,8 @@ pub(in crate::game) struct PadRouter {
     rumbles: Vec<(gilrs::ff::Effect, Instant)>,
     /// The furthest each pad's sticks leant since the last `events` (`Pads::peaks`).
     peaks: Vec<(PadId, [[f32; 2]; 2])>,
-    unlisted: RoutedUnlisted,
+    /// The DualSenses it reads directly, one link each.
+    direct: direct::Direct,
 }
 
 impl PadRouter {
@@ -478,7 +473,7 @@ impl PadRouter {
     /// Routing ends: P1 gets the reader back, open as it was.
     pub(in crate::game) fn hand_back(&mut self, pads: &mut Pads) {
         self.started = false;
-        self.unlisted = RoutedUnlisted::default();
+        self.direct = direct::Direct::default();
         pads.devices.routed = None;
         if let Some(gilrs) = self.gilrs.take() {
             pads.devices.gilrs = Some(gilrs);
@@ -493,17 +488,8 @@ impl PadRouter {
             pads.release_hardware();
         }
         let PadId::Listed(id) = id else {
-            // The unlisted DualSense: P1 gets its link as its output, as for a listed one.
-            if !pads.devices.unlisted.active {
-                pads.devices.rumbles.clear();
-                pads.devices.reading_motion = false;
-                pads.devices.shown = None;
-            }
-            pads.devices.output = self.unlisted.link.take();
-            self.unlisted.lent = pads.devices.output.is_some();
-            pads.devices.unlisted.active = true;
-            pads.devices.dualsense = true;
-            pads.devices.active = None;
+            // A DualSense read directly: P1 gets its link as its output, as for a listed one.
+            self.lend_pad(pads, Some(id));
             pads.devices.started = true;
             pads.devices.gilrs = self.gilrs.take();
             return;
@@ -531,10 +517,20 @@ impl PadRouter {
 
     pub(in crate::game) fn reclaim_output(&mut self, pads: &mut Pads) {
         self.gilrs = pads.devices.gilrs.take();
-        if self.unlisted.lent {
-            self.unlisted.lent = false;
-            self.unlisted.link = pads.devices.output.take();
+        self.return_pad(pads);
+    }
+
+    /// For a player's turn: a DualSense read directly lends its link to the player it drives, so
+    /// its gyro, touchpad and lights are that player's. Other pads have nothing to lend.
+    pub(in crate::game) fn lend_pad(&mut self, pads: &mut Pads, id: Option<PadId>) {
+        if let Some(PadId::Unlisted(key)) = id {
+            self.direct.lend(pads, key);
         }
+    }
+
+    /// The turn is over: a lent link comes back.
+    pub(in crate::game) fn return_pad(&mut self, pads: &mut Pads) {
+        self.direct.reclaim(pads);
     }
 
     /// `pad status` is answered in P1's turn, which can't reach this reader: leave it what the
@@ -559,6 +555,9 @@ impl PadRouter {
         let mut events = Vec::new();
         self.peaks.clear();
         while let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
+            if unlisted::ignored(&gilrs.gamepad(id)) {
+                continue;
+            }
             let pad = PadId::Listed(id);
             if matches!(event, gilrs::EventType::AxisChanged(..)) {
                 let sticks = sticks_of(&gilrs.gamepad(id));
@@ -584,45 +583,14 @@ impl PadRouter {
                 _ => {}
             }
         }
-        self.read_unlisted(&mut events);
+        self.direct.read(&mut events);
         events
     }
 
-    /// The DualSense gilrs doesn't list: its presses, and its going and coming back.
-    fn read_unlisted(&mut self, events: &mut Vec<PadEvent>) {
-        let u = &mut self.unlisted;
-        if u.lent {
-            return;
-        }
-        if !self.gilrs.as_ref().is_some_and(unlisted::needed) {
-            u.watch.stop(u.link.as_ref());
-            *u = RoutedUnlisted::default();
-            return;
-        }
-        let link = u
-            .link
-            .get_or_insert_with(horizon_dualsense::Link::start_unlisted);
-        let (state, change) = u.watch.poll(link);
-        match change {
-            Some(true) => events.push(PadEvent::Back(PadId::Unlisted)),
-            Some(false) => events.push(PadEvent::Gone(PadId::Unlisted)),
-            None => {}
-        }
-        if let Some(now) = state {
-            let before = u.state.unwrap_or_default();
-            events.extend(
-                Button::ALL
-                    .into_iter()
-                    .filter(|&b| now.held(b) && !before.held(b))
-                    .map(|b| PadEvent::Press(PadId::Unlisted, b)),
-            );
-        }
-        u.state = state;
-    }
-
     pub(in crate::game) fn connected(&self, id: PadId) -> bool {
-        let PadId::Listed(id) = id else {
-            return self.unlisted.lent || self.unlisted.watch.present();
+        let id = match id {
+            PadId::Listed(id) => id,
+            PadId::Unlisted(key) => return self.direct.connected(key),
         };
         self.gilrs
             .as_ref()
@@ -643,8 +611,8 @@ impl PadRouter {
 
     /// The furthest the pad's sticks leant since the last `events`.
     pub(in crate::game) fn peaks(&self, id: PadId) -> [[f32; 2]; 2] {
-        if id == PadId::Unlisted {
-            let s = self.unlisted.state.unwrap_or_default();
+        if let PadId::Unlisted(key) = id {
+            let s = self.direct.state(key);
             return [s.left, s.right];
         }
         self.peaks
@@ -655,8 +623,9 @@ impl PadRouter {
 
     /// The pad's state now (released when it is gone).
     pub(in crate::game) fn state(&self, id: PadId) -> PadState {
-        let PadId::Listed(id) = id else {
-            return self.unlisted.state.unwrap_or_default();
+        let id = match id {
+            PadId::Listed(id) => id,
+            PadId::Unlisted(key) => return self.direct.state(key),
         };
         self.gilrs
             .as_ref()
@@ -778,7 +747,7 @@ impl Game<'_> {
         let state = horizon_dualsense::device::State {
             triggers: trigger_effects::effects(&self.settings.controller, using, attacking),
             lightbar: lightbar.filter(|_| lights),
-            player_leds: lights.then_some(horizon_dualsense::PLAYER_1),
+            player_leds: lights.then_some(horizon_dualsense::player_leds(self.pad.seat.max(1))),
         };
         if self.pad.devices.shown != Some(state)
             && let Some(output) = &self.pad.devices.output
