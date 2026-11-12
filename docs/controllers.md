@@ -1023,6 +1023,11 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   (`touch`) can be bound like any button, e.g. the Gyro Button to the touch. gilrs doesn't report
   them, so they come from the pad's own reports: always for a pad read over HID, and for a listed
   one while something is bound to them (or the gyro reads). They show as text glyphs.
+- **Per kind of controller.** The gyro's settings and Flick Stick are kept for each kind
+  (PlayStation, Nintendo, Xbox, Steam, other: `GyroFamily`, by USB vendor), since pads differ in
+  their gyro and their buttons; the rest stays shared. The kind in use is `gyroFamily`, its values
+  the plain `gyro*` lines; the others are `gyro.<kind>.<key>` lines. Using a pad of another kind
+  swaps them in (its defaults the first time) and saves. The Gyro page says which kind it edits.
 - **Pages.** Gyro (aiming, steadiness, pausing, flick stick) and Gyro Pointer are pages of their
   own, greyed with a reason while the controller in use has no gyro the game reads (only a
   DualSense today); with none plugged in they can be set up ahead.

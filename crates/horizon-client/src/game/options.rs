@@ -205,6 +205,7 @@ impl Game<'_> {
             device: self.pad.device_or_virtual(),
             detected: detected_controller_style(self.pad.device.as_ref(), self.pad.style),
             glyphs: self.ui.options.pad_glyphs,
+            gyro_family: self.settings.controller.gyro_family,
         }
     }
     /// HDR calibration's test picture to the renderer, full screen while it runs: the

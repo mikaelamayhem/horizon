@@ -61,6 +61,8 @@ pub enum Info {
     Ids,
     Detected,
     Using,
+    /// The kind of controller whose gyro settings are shown.
+    GyroFamily,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,6 +284,7 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                 (
                     "horizon.options.group.gyro_aim",
                     vec![
+                        info(Info::GyroFamily, "horizon.options.gyro_family.about"),
                         option(
                             Opt::PadGyro(GyroOpt::Mode),
                             "horizon.options.gyro_mode.about",
@@ -477,6 +480,8 @@ pub struct Context {
     pub detected: GlyphStyle,
     /// The glyphs menus show, letter mode included.
     pub glyphs: Glyphs,
+    /// The kind of controller whose gyro settings are in use (`PadSettings::gyro_family`).
+    pub gyro_family: gamepad::GyroFamily,
 }
 
 fn glyphs_name(style: GlyphStyle) -> String {
@@ -535,6 +540,13 @@ impl Context {
             ),
             Info::Detected => ("Detected glyphs", glyphs_name(self.detected)),
             Info::Using => ("Glyphs in use", glyphs_name(self.glyphs.family())),
+            Info::GyroFamily => (
+                "horizon.options.gyro_family",
+                lang::get(&format!(
+                    "horizon.options.gyro_family.{}",
+                    self.gyro_family.name()
+                )),
+            ),
         }
     }
     fn device_name(&self) -> String {

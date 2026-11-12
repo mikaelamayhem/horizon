@@ -432,6 +432,16 @@ impl Game<'_> {
         for change in std::mem::take(&mut self.pad.connections) {
             self.pad_connection_notice(change);
         }
+        // Each kind of controller keeps its own gyro settings: the one in use brings back its own.
+        if let Some(d) = &self.pad.device
+            && self
+                .settings
+                .controller
+                .use_gyro_family(gamepad::GyroFamily::of(d.vendor, d.product))
+            && let Some(dir) = Self::options_path().parent()
+        {
+            self.settings.controller.save(dir);
+        }
         self.ui.options.pad_glyphs = Glyphs::of(&self.settings.controller, self.pad.style);
         self.ui.options.pad_driving = self.pad.in_use && self.pad_focus_mode();
         let mut state = hardware.merge(&self.pad.injected);

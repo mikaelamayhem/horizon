@@ -272,6 +272,8 @@ mod flick;
 pub use flick::FlickStick;
 mod gyro;
 pub use gyro::{Gyro, GyroMode, GyroSettings, GyroSpace, MotionSample, cursor_pixels};
+mod gyro_file;
+pub use gyro_file::{GyroFamily, GyroProfile};
 
 /// The `bindLayout` the settings file is written in. 1: the defaults of the binds list as they
 /// are; 2: the radial menu's opener resolved against the player's own buttons.
@@ -701,6 +703,10 @@ pub struct PadSettings {
     pub gyro: GyroSettings,
     /// The right stick flicks and turns the view instead of looking (`FlickStick`).
     pub flick_stick: bool,
+    /// The kind of controller `gyro` and `flick_stick` are for; the other kinds' are kept in
+    /// `gyro_saved` until one of them is used (`use_gyro_family`).
+    pub gyro_family: GyroFamily,
+    gyro_saved: Vec<(GyroFamily, GyroProfile)>,
     /// Lines this game doesn't read (a newer Horizon's settings, an action it doesn't have, a
     /// button it doesn't know), kept as they were so a save here loses nothing.
     extra: Vec<(String, String)>,
@@ -741,6 +747,8 @@ impl Default for PadSettings {
             radial_stick: RadialStick::Right,
             gyro: GyroSettings::default(),
             flick_stick: false,
+            gyro_family: GyroFamily::default(),
+            gyro_saved: Vec::new(),
             extra: Vec::new(),
             bind_layout: BIND_LAYOUT,
             openers: radial_file::StickOpeners::default(),
@@ -768,6 +776,58 @@ impl PadSettings {
             let _ = fs::write(path, self.serialize());
         }
     }
+    /// The gyro settings and flick stick in use.
+    pub fn gyro_profile(&self) -> GyroProfile {
+        GyroProfile {
+            gyro: self.gyro,
+            flick_stick: self.flick_stick,
+        }
+    }
+
+    /// A gyro line of the file: the kind in use, its settings, or another kind's; false when the
+    /// line is something else.
+    fn read_gyro_line(&mut self, key: &str, value: &str) -> bool {
+        if key == "gyroFamily" {
+            self.gyro_family = GyroFamily::parse(value).unwrap_or_default();
+            return true;
+        }
+        if let Some((family, key)) = gyro_file::family_key(key) {
+            let k = match self.gyro_saved.iter().position(|(f, _)| *f == family) {
+                Some(k) => k,
+                None => {
+                    self.gyro_saved.push((family, GyroProfile::default()));
+                    self.gyro_saved.len() - 1
+                }
+            };
+            self.gyro_saved[k].1.read(key, value);
+            return true;
+        }
+        let mut profile = self.gyro_profile();
+        let read = profile.read(key, value);
+        self.gyro = profile.gyro;
+        self.flick_stick = profile.flick_stick;
+        read
+    }
+
+    /// A controller of `family` is in use: its own gyro settings and flick stick come in (the
+    /// defaults, the first time), and the last kind's are kept. Whether anything changed.
+    pub fn use_gyro_family(&mut self, family: GyroFamily) -> bool {
+        if family == self.gyro_family {
+            return false;
+        }
+        let current = self.gyro_profile();
+        self.gyro_saved.retain(|(f, _)| *f != self.gyro_family);
+        self.gyro_saved.push((self.gyro_family, current));
+        let next = match self.gyro_saved.iter().position(|(f, _)| *f == family) {
+            Some(k) => self.gyro_saved.remove(k).1,
+            None => GyroProfile::default(),
+        };
+        self.gyro = next.gyro;
+        self.flick_stick = next.flick_stick;
+        self.gyro_family = family;
+        true
+    }
+
     pub fn parse(text: &str) -> Self {
         let mut s = Self::default();
         let mut saved_opener = None;
@@ -776,6 +836,9 @@ impl PadSettings {
                 continue;
             };
             let value = value.trim();
+            if s.read_gyro_line(key.trim(), value) {
+                continue;
+            }
             let flag = |d: bool| match value {
                 "true" => true,
                 "false" => false,
@@ -821,26 +884,6 @@ impl PadSettings {
                 "repeatInterval" => s.repeat_interval = bounded(s.repeat_interval, 0.03, 0.3),
                 "radialMode" => s.radial_mode = RadialMode::parse(value),
                 "radialStick" => s.radial_stick = RadialStick::parse(value),
-                "flickStick" => s.flick_stick = flag(s.flick_stick),
-                "gyroMode" => s.gyro.mode = GyroMode::parse(value),
-                "gyroSpace" => s.gyro.space = GyroSpace::parse(value),
-                "gyroSensitivity" => s.gyro.sensitivity = bounded(s.gyro.sensitivity, 0.1, 20.0),
-                "gyroVertical" => s.gyro.vertical = bounded(s.gyro.vertical, 0.0, 2.0),
-                "gyroSmoothing" => s.gyro.smoothing = bounded(s.gyro.smoothing, 0.0, 50.0),
-                "gyroTightening" => s.gyro.tightening = bounded(s.gyro.tightening, 0.0, 50.0),
-                "gyroAcceleration" => s.gyro.acceleration = bounded(s.gyro.acceleration, 1.0, 4.0),
-                "gyroAutoCalibrate" => s.gyro.auto_calibrate = flag(s.gyro.auto_calibrate),
-                "gyroStickPauses" => s.gyro.stick_pauses = flag(s.gyro.stick_pauses),
-                "gyroTouchPauses" => s.gyro.touch_pauses = flag(s.gyro.touch_pauses),
-                "gyroInvertX" => s.gyro.invert_x = flag(s.gyro.invert_x),
-                "gyroInvertY" => s.gyro.invert_y = flag(s.gyro.invert_y),
-                "gyroCursor" => s.gyro.cursor = bounded(s.gyro.cursor, 0.0, 20.0),
-                "gyroCursorSmoothing" => {
-                    s.gyro.cursor_smoothing = bounded(s.gyro.cursor_smoothing, 0.0, 50.0)
-                }
-                "gyroCursorTightening" => {
-                    s.gyro.cursor_tightening = bounded(s.gyro.cursor_tightening, 0.0, 50.0)
-                }
                 // Read after the loop, from the whole text.
                 "bindLayout" => {}
                 // The radial menu's pages (`radial::Pages::parse`).
@@ -972,26 +1015,11 @@ impl PadSettings {
             self.radial_mode.name(),
             self.radial_stick.name()
         ));
-        let g = &self.gyro;
-        text.push_str(&format!(
-            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroTouchPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\ngyroCursorSmoothing:{}\ngyroCursorTightening:{}\n",
-            bool_text(self.flick_stick),
-            g.mode.name(),
-            g.space.name(),
-            g.sensitivity,
-            g.vertical,
-            g.smoothing,
-            g.tightening,
-            g.acceleration,
-            bool_text(g.auto_calibrate),
-            bool_text(g.stick_pauses),
-            bool_text(g.touch_pauses),
-            bool_text(g.invert_x),
-            bool_text(g.invert_y),
-            g.cursor,
-            g.cursor_smoothing,
-            g.cursor_tightening,
-        ));
+        text.push_str(&self.gyro_profile().lines(""));
+        text.push_str(&format!("gyroFamily:{}\n", self.gyro_family.name()));
+        for (family, profile) in &self.gyro_saved {
+            text.push_str(&profile.lines(&gyro_file::family_prefix(*family)));
+        }
         text.push_str(&format!("bindLayout:{}\n", self.bind_layout));
         for (key, value) in &self.extra {
             // A button this game didn't know, for an action the player has bound here since.
@@ -2040,6 +2068,23 @@ bind_key.hotbar.2:north
         assert_eq!(s.binding("key.advancements"), Some(Button::DPadLeft));
         assert_eq!(s.binding("key.drop"), Some(Button::DPadDown));
         assert_eq!(PadSettings::parse(&s.serialize()), s);
+    }
+
+    #[test]
+    fn each_kind_of_controller_keeps_its_own_gyro() {
+        let mut s = PadSettings::default();
+        s.gyro.mode = GyroMode::On;
+        s.flick_stick = true;
+        assert!(s.use_gyro_family(GyroFamily::Nintendo));
+        assert_eq!((s.gyro.mode, s.flick_stick), (GyroMode::Off, false));
+        s.gyro.sensitivity = 3.0;
+        // Through the file and back, then to the DualSense and back to the Switch pad.
+        let mut s = PadSettings::parse(&s.serialize());
+        assert!(!s.use_gyro_family(GyroFamily::Nintendo));
+        assert!(s.use_gyro_family(GyroFamily::PlayStation));
+        assert_eq!((s.gyro.mode, s.flick_stick), (GyroMode::On, true));
+        s.use_gyro_family(GyroFamily::Nintendo);
+        assert_eq!((s.gyro.sensitivity, s.gyro.mode), (3.0, GyroMode::Off));
     }
 
     #[test]
