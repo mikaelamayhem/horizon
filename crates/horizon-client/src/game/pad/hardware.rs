@@ -132,7 +132,7 @@ const EXTRA_SDL_MAPPINGS: &str = concat!(
 /// without it (gilrs on macOS) skip it.
 fn play_pulse(
     gilrs: &mut gilrs::Gilrs,
-    id: PadId,
+    id: gilrs::GamepadId,
     pulse: gamepad::Pulse,
 ) -> Option<(gilrs::ff::Effect, Instant)> {
     if !gilrs
@@ -396,8 +396,33 @@ fn sticks_of(pad: &gilrs::Gamepad) -> [[f32; 2]; 2] {
     [left, right]
 }
 
-/// A controller, as splitscreen tells them apart.
-pub(in crate::game) type PadId = gilrs::GamepadId;
+/// A controller, as splitscreen tells them apart: one gilrs lists, or the DualSense read
+/// directly because gilrs doesn't (`unlisted.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::game) enum PadId {
+    Listed(gilrs::GamepadId),
+    Unlisted,
+}
+
+impl PadId {
+    fn listed(self) -> Option<gilrs::GamepadId> {
+        match self {
+            PadId::Listed(id) => Some(id),
+            PadId::Unlisted => None,
+        }
+    }
+}
+
+/// The router's unlisted DualSense, read through its own link while P1 isn't borrowing it.
+#[derive(Default)]
+struct RoutedUnlisted {
+    link: Option<horizon_dualsense::Link>,
+    watch: unlisted::Watch,
+    /// Its controls at the last `events`, for its presses; `None` while it is gone.
+    state: Option<PadState>,
+    /// The link is P1's for its turn (`lend_output`).
+    lent: bool,
+}
 
 /// Splitscreen: one gilrs for every player's game in this process. The split decides which
 /// player each pad drives; this reads them.
@@ -409,6 +434,7 @@ pub(in crate::game) struct PadRouter {
     rumbles: Vec<(gilrs::ff::Effect, Instant)>,
     /// The furthest each pad's sticks leant since the last `events` (`Pads::peaks`).
     peaks: Vec<(PadId, [[f32; 2]; 2])>,
+    unlisted: RoutedUnlisted,
 }
 
 impl PadRouter {
@@ -430,7 +456,8 @@ impl PadRouter {
         let now = Instant::now();
         self.rumbles.retain(|(_, end)| *end > now);
         let pulses = std::mem::take(&mut pads.devices.routed_rumbles);
-        let (Some(gilrs), Some(id)) = (self.gilrs.as_mut(), id) else {
+        // The unlisted pad rumbles only for P1 alone, through the lent link.
+        let (Some(gilrs), Some(id)) = (self.gilrs.as_mut(), id.and_then(PadId::listed)) else {
             return;
         };
         self.rumbles
@@ -440,6 +467,7 @@ impl PadRouter {
     /// Routing ends: P1 gets the reader back, open as it was.
     pub(in crate::game) fn hand_back(&mut self, pads: &mut Pads) {
         self.started = false;
+        self.unlisted = RoutedUnlisted::default();
         pads.devices.routed = None;
         if let Some(gilrs) = self.gilrs.take() {
             pads.devices.gilrs = Some(gilrs);
@@ -452,6 +480,26 @@ impl PadRouter {
     pub(in crate::game) fn lend_output(&mut self, pads: &mut Pads, id: PadId) {
         if pads.devices.gilrs.is_some() {
             pads.release_hardware();
+        }
+        let PadId::Listed(id) = id else {
+            // The unlisted DualSense: P1 gets its link as its output, as for a listed one.
+            if !pads.devices.unlisted.active {
+                pads.devices.rumbles.clear();
+                pads.devices.reading_motion = false;
+                pads.devices.shown = None;
+            }
+            pads.devices.output = self.unlisted.link.take();
+            self.unlisted.lent = pads.devices.output.is_some();
+            pads.devices.unlisted.active = true;
+            pads.devices.dualsense = true;
+            pads.devices.active = None;
+            pads.devices.started = true;
+            pads.devices.gilrs = self.gilrs.take();
+            return;
+        };
+        if pads.devices.unlisted.active {
+            pads.devices.unlisted.reset();
+            pads.devices.output = None;
         }
         if pads.devices.active != Some(id) {
             pads.devices.rumbles.clear();
@@ -472,6 +520,10 @@ impl PadRouter {
 
     pub(in crate::game) fn reclaim_output(&mut self, pads: &mut Pads) {
         self.gilrs = pads.devices.gilrs.take();
+        if self.unlisted.lent {
+            self.unlisted.lent = false;
+            self.unlisted.link = pads.devices.output.take();
+        }
     }
 
     /// `pad status` is answered in P1's turn, which can't reach this reader: leave it what the
@@ -479,7 +531,7 @@ impl PadRouter {
     pub(in crate::game) fn report_status(&self, pads: &mut Pads, owner: Option<PadId>) {
         pads.devices.routed = self.gilrs.as_ref().map(|g| {
             g.gamepads()
-                .map(|(id, p)| controller_status(id, &p, owner))
+                .map(|(id, p)| controller_status(id, &p, owner.and_then(PadId::listed)))
                 .collect()
         });
     }
@@ -496,11 +548,12 @@ impl PadRouter {
         let mut events = Vec::new();
         self.peaks.clear();
         while let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
+            let pad = PadId::Listed(id);
             if matches!(event, gilrs::EventType::AxisChanged(..)) {
                 let sticks = sticks_of(&gilrs.gamepad(id));
-                match self.peaks.iter_mut().find(|(pad, _)| *pad == id) {
+                match self.peaks.iter_mut().find(|(p, _)| *p == pad) {
                     Some((_, peaks)) => keep_peaks(peaks, sticks),
-                    None => self.peaks.push((id, sticks)),
+                    None => self.peaks.push((pad, sticks)),
                 }
             }
             match event {
@@ -510,21 +563,57 @@ impl PadRouter {
                         .into_iter()
                         .find(|&b| face_buttons::named(gilrs_button(b), crossed) == pressed)
                     {
-                        events.push(PadEvent::Press(id, button));
+                        events.push(PadEvent::Press(pad, button));
                     }
                 }
                 gilrs::EventType::Disconnected => {
                     log::info!("Controller disconnected: {}", gilrs.gamepad(id).name());
-                    events.push(PadEvent::Gone(id));
+                    events.push(PadEvent::Gone(pad));
                 }
-                gilrs::EventType::Connected => events.push(PadEvent::Back(id)),
+                gilrs::EventType::Connected => events.push(PadEvent::Back(pad)),
                 _ => {}
             }
         }
+        self.read_unlisted(&mut events);
         events
     }
 
+    /// The DualSense gilrs doesn't list: its presses, and its going and coming back.
+    fn read_unlisted(&mut self, events: &mut Vec<PadEvent>) {
+        let u = &mut self.unlisted;
+        if u.lent {
+            return;
+        }
+        if !self.gilrs.as_ref().is_some_and(unlisted::needed) {
+            u.watch.stop(u.link.as_ref());
+            *u = RoutedUnlisted::default();
+            return;
+        }
+        let link = u
+            .link
+            .get_or_insert_with(horizon_dualsense::Link::start_unlisted);
+        let (state, change) = u.watch.poll(link);
+        match change {
+            Some(true) => events.push(PadEvent::Back(PadId::Unlisted)),
+            Some(false) => events.push(PadEvent::Gone(PadId::Unlisted)),
+            None => {}
+        }
+        if let Some(now) = state {
+            let before = u.state.unwrap_or_default();
+            events.extend(
+                Button::ALL
+                    .into_iter()
+                    .filter(|&b| now.held(b) && !before.held(b))
+                    .map(|b| PadEvent::Press(PadId::Unlisted, b)),
+            );
+        }
+        u.state = state;
+    }
+
     pub(in crate::game) fn connected(&self, id: PadId) -> bool {
+        let PadId::Listed(id) = id else {
+            return self.unlisted.lent || self.unlisted.watch.present();
+        };
         self.gilrs
             .as_ref()
             .is_some_and(|g| g.connected_gamepad(id).is_some())
@@ -533,6 +622,10 @@ impl PadRouter {
     /// The kind of controller (its maker, model and bus; two of one model share it), to know it
     /// back when it reconnects under a new id; zero when the system doesn't say.
     pub(in crate::game) fn uuid(&self, id: PadId) -> [u8; 16] {
+        let PadId::Listed(id) = id else {
+            // As gilrs would make it on Windows: USB, Sony, DualSense.
+            return [3, 0, 0, 0, 0x4c, 0x05, 0, 0, 0xe6, 0x0c, 0, 0, 0, 0, 0, 0];
+        };
         self.gilrs
             .as_ref()
             .map_or([0; 16], |g| g.gamepad(id).uuid())
@@ -540,6 +633,10 @@ impl PadRouter {
 
     /// The furthest the pad's sticks leant since the last `events`.
     pub(in crate::game) fn peaks(&self, id: PadId) -> [[f32; 2]; 2] {
+        if id == PadId::Unlisted {
+            let s = self.unlisted.state.unwrap_or_default();
+            return [s.left, s.right];
+        }
         self.peaks
             .iter()
             .find(|(pad, _)| *pad == id)
@@ -548,6 +645,9 @@ impl PadRouter {
 
     /// The pad's state now (released when it is gone).
     pub(in crate::game) fn state(&self, id: PadId) -> PadState {
+        let PadId::Listed(id) = id else {
+            return self.unlisted.state.unwrap_or_default();
+        };
         self.gilrs
             .as_ref()
             .and_then(|g| g.connected_gamepad(id))
@@ -556,6 +656,9 @@ impl PadRouter {
 
     /// Its glyphs (Xbox, PlayStation, Nintendo), as `read` finds them for the active pad.
     pub(in crate::game) fn style(&self, id: PadId) -> GlyphStyle {
+        let PadId::Listed(id) = id else {
+            return GlyphStyle::PlayStation;
+        };
         self.gilrs
             .as_ref()
             .and_then(|g| g.connected_gamepad(id))
@@ -565,6 +668,9 @@ impl PadRouter {
     }
 
     pub(in crate::game) fn device(&self, id: PadId) -> Option<Device> {
+        let PadId::Listed(id) = id else {
+            return Some(unlisted::device());
+        };
         self.gilrs
             .as_ref()
             .and_then(|g| g.connected_gamepad(id))
@@ -572,6 +678,9 @@ impl PadRouter {
     }
 
     pub(in crate::game) fn name(&self, id: PadId) -> String {
+        let PadId::Listed(id) = id else {
+            return unlisted::device().name;
+        };
         self.gilrs
             .as_ref()
             .and_then(|g| g.connected_gamepad(id))

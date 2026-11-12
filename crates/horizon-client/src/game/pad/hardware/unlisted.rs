@@ -5,6 +5,7 @@ use super::{Devices, TAKEOVER, is_dualsense};
 use crate::game::pad::{Connection, Pads};
 use horizon_client::controller_ui::Device;
 use horizon_client::gamepad::{Button, GlyphStyle, PadState};
+use horizon_dualsense::Link;
 use horizon_dualsense::input::{DsButton, RawInput};
 use std::time::{Duration, Instant};
 
@@ -24,20 +25,76 @@ fn wanted() -> bool {
     }
 }
 
-/// The unlisted pad's part of `Devices`.
+/// Reading an unlisted pad through a `Link`: asking for its controls, looking for it again
+/// while it is gone, and saying when it came or went. P1's own reader and splitscreen's router
+/// each keep one.
 #[derive(Default)]
-pub(super) struct Unlisted {
-    /// The output thread was asked to read the buttons and sticks.
+pub(super) struct Watch {
+    /// The link was asked to read the buttons and sticks.
     reading: bool,
     /// A report came in at the last read: the pad is there.
     present: bool,
+    next_scan: Option<Instant>,
+    /// When reports stopped, while that is shorter than [`GRACE`].
+    missing_since: Option<Instant>,
+}
+
+impl Watch {
+    /// The pad's controls now, and whether it just came (`Some(true)`) or went (`Some(false)`).
+    pub(super) fn poll(&mut self, link: &Link) -> (Option<PadState>, Option<bool>) {
+        if !self.reading {
+            link.read_input(true);
+            self.reading = true;
+        }
+        let now = Instant::now();
+        if link.open().is_none() && self.next_scan.is_none_or(|at| now >= at) {
+            if self.next_scan.is_some() {
+                link.scan();
+            }
+            self.next_scan = Some(now + RESCAN);
+        }
+        let state = link.input().map(|input| state(&input));
+        let mut change = None;
+        if state.is_some() {
+            self.missing_since = None;
+            if !self.present {
+                self.present = true;
+                log::info!("Controller connected: DualSense (read over HID)");
+                change = Some(true);
+            }
+        } else if self.present && now - *self.missing_since.get_or_insert(now) >= GRACE {
+            self.present = false;
+            self.missing_since = None;
+            log::info!("Controller disconnected: DualSense (read over HID)");
+            change = Some(false);
+        }
+        (state, change)
+    }
+
+    /// The pad is there (or gone for less than [`GRACE`]).
+    pub(super) fn present(&self) -> bool {
+        self.present
+    }
+
+    /// Stop reading the controls (gilrs lists the pad now).
+    pub(super) fn stop(&mut self, link: Option<&Link>) {
+        if self.reading
+            && let Some(link) = link
+        {
+            link.read_input(false);
+        }
+        *self = Watch::default();
+    }
+}
+
+/// The unlisted pad's part of `Devices`.
+#[derive(Default)]
+pub(super) struct Unlisted {
+    watch: Watch,
     /// It is the pad being played.
     pub(super) active: bool,
     /// Something on it was held at the last read, so a press only takes over once.
     touched: bool,
-    next_scan: Option<Instant>,
-    /// When reports stopped, while that is shorter than [`GRACE`].
-    missing_since: Option<Instant>,
 }
 
 impl Unlisted {
@@ -47,61 +104,39 @@ impl Unlisted {
     }
 }
 
+/// Whether to read an unlisted pad: it's wanted on this system and gilrs lists no DualSense.
+pub(super) fn needed(gilrs: &gilrs::Gilrs) -> bool {
+    wanted() && !gilrs.gamepads().any(|(_, p)| is_dualsense(&p))
+}
+
 impl Pads {
     /// An unlisted DualSense's controls, starting its output to read them, and its connection
     /// notices. `None` when gilrs lists a DualSense or none is plugged in.
     pub(super) fn read_unlisted(&mut self) -> Option<PadState> {
-        let listed = self
-            .devices
-            .gilrs
-            .as_ref()?
-            .gamepads()
-            .any(|(_, p)| is_dualsense(&p));
+        let needed = needed(self.devices.gilrs.as_ref()?);
         let d: &mut Devices = &mut self.devices;
-        if listed || !wanted() {
-            if d.unlisted.reading
-                && let Some(output) = &d.output
-            {
-                output.read_input(false);
-            }
+        if !needed {
+            d.unlisted.watch.stop(d.output.as_ref());
             d.unlisted.reset();
             return None;
         }
         if d.output.is_none() {
-            d.output = Some(horizon_dualsense::Link::start_unlisted());
+            d.output = Some(Link::start_unlisted());
             d.reading_motion = false;
             d.unlisted.reset();
         }
-        let output = d.output.as_ref()?;
-        if !d.unlisted.reading {
-            output.read_input(true);
-            d.unlisted.reading = true;
-        }
-        let now = Instant::now();
-        if output.open().is_none() && d.unlisted.next_scan.is_none_or(|at| now >= at) {
-            if d.unlisted.next_scan.is_some() {
-                output.scan();
+        let (state, change) = d.unlisted.watch.poll(d.output.as_ref()?);
+        match change {
+            Some(true) => self
+                .connections
+                .push(Connection::Connected(GlyphStyle::PlayStation)),
+            Some(false) => {
+                self.connections.push(Connection::Disconnected {
+                    active: d.unlisted.active,
+                });
+                d.unlisted.active = false;
             }
-            d.unlisted.next_scan = Some(now + RESCAN);
-        }
-        let state = output.input().map(|input| state(&input));
-        if state.is_some() {
-            d.unlisted.missing_since = None;
-            if !d.unlisted.present {
-                d.unlisted.present = true;
-                log::info!("Controller connected: DualSense (read over HID)");
-                self.connections
-                    .push(Connection::Connected(GlyphStyle::PlayStation));
-            }
-        } else if d.unlisted.present && now - *d.unlisted.missing_since.get_or_insert(now) >= GRACE
-        {
-            d.unlisted.present = false;
-            d.unlisted.missing_since = None;
-            log::info!("Controller disconnected: DualSense (read over HID)");
-            self.connections.push(Connection::Disconnected {
-                active: d.unlisted.active,
-            });
-            d.unlisted.active = false;
+            None => {}
         }
         let touched = state.as_ref().is_some_and(touched);
         if touched && !d.unlisted.touched {
@@ -169,6 +204,7 @@ mod tests {
             sticks: [[128, 128], [130, 126]],
             triggers: [0, 3],
             buttons: [0x08, 0, 0],
+            touching: false,
         };
         assert!(!touched(&state(&resting)));
         let cross = RawInput {

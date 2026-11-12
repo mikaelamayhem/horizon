@@ -995,7 +995,8 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   reads that pad's buttons, sticks and triggers from the same reports (`horizon-dualsense`'s
   `input.rs`, the game's `pad/hardware/unlisted.rs`), over USB or Bluetooth, and looks for one every
   3 seconds while none is open. `HORIZON_DUALSENSE_HID=1` turns this on elsewhere, `0` off.
-  Splitscreen doesn't route such a pad yet.
+  Splitscreen routes it as one more pad (`PadId::Unlisted`); P1 alone gets its gyro and output, as
+  with a listed DualSense.
 - **Gyro Aiming** (`gyroMode`): Off; On (the Gyro Button, unbound by default, pauses it while held,
   as one lifts a mouse); Hold Gyro Button; Toggle with Gyro Button. Bind the button right below the mode.
 - **Gyro Sensitivity** (`gyroSensitivity`, 0.1 to 10, default 2.0x): 1.0x turns the view as far as
