@@ -26,7 +26,6 @@ pub(crate) use widgets::{button, inactive};
 #[path = "options_ui_values.rs"]
 mod values;
 pub(crate) use values::{chat_delay_label, chat_px, generic, on_off, percent};
-
 mod shell_pages;
 
 #[path = "options_ui_wheel.rs"]
@@ -318,6 +317,7 @@ impl Opt {
             Opt::PadGameplayGuide => "horizon.options.gameplay_guide",
             Opt::PadRadialMode => "horizon.options.radial_mode",
             Opt::PadRadialStick => "horizon.options.radial_stick",
+            Opt::PadGyro(g) => g.caption(),
             Opt::ModelPart(i) => [
                 "options.modelPart.cape",
                 "options.modelPart.jacket",
@@ -401,7 +401,7 @@ impl Opt {
             Opt::PadTriggerThreshold => unit(s.controller.trigger_threshold, 0.1, 0.9),
             Opt::SprintWindow => unit(s.sprint_window as f32, 0.0, 10.0),
             Opt::Page(page, row) => pages::slider_kind(page, row),
-            _ => Kind::Cycle,
+            _ => self.gyro_kind(s),
         }
     }
     /// OptionInstance's static or value-dependent tooltip translation.
@@ -467,7 +467,7 @@ impl Opt {
             Opt::PadMoveDeadzone | Opt::PadLookDeadzone => Some(50),
             Opt::PadTriggerThreshold => Some(80),
             Opt::SprintWindow => Some(10),
-            _ => None,
+            _ => self.gyro_slider_steps(),
         }
     }
     /// Step a slider forward or backward, derived from its own slider definition and step count.
@@ -689,7 +689,7 @@ impl Opt {
                     ],
                 )
             }
-            _ => generic(c, self.value_text(s)),
+            _ => self.gyro_label(s, c),
         }
     }
     fn value_text(self, s: &Settings) -> Text {
@@ -880,7 +880,7 @@ impl Opt {
             }),
             Opt::PadRadialMode | Opt::PadRadialStick => self.radial_text(s),
             Opt::Page(page, row) => pages::slider_text(page, row),
-            _ => Text::empty(),
+            _ => self.gyro_value_text(s),
         }
     }
     /// Set a slider from its 0..1 position (OptionInstance value sets).
@@ -956,7 +956,7 @@ impl Opt {
             Opt::PadTriggerThreshold => s.controller.trigger_threshold = step(10.0, 90.0) / 100.0,
             Opt::SprintWindow => s.sprint_window = step(0.0, 10.0) as i32,
             Opt::Page(page, row) => pages::slide(page, row, v),
-            _ => {}
+            _ => self.gyro_set_slider(s, v),
         }
         if self.affects_preset() {
             s.graphics_preset = "custom".into();
@@ -1202,7 +1202,7 @@ impl Opt {
                 s.controller.keyboard = all[usize::from(next(i, 3))];
             }
             Opt::PadRadialMode | Opt::PadRadialStick => self.radial_step(s, back),
-            _ => {}
+            _ => self.gyro_cycle(s, back),
         }
         if self.affects_preset() {
             s.graphics_preset = "custom".into();

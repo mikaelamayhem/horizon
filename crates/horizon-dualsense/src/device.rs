@@ -1,17 +1,20 @@
 //! The pad over hidapi, and the thread that writes to it: writes block (a Bluetooth report can
 //! take milliseconds), so the game only hands over what the pad should do.
 #[cfg(not(target_os = "ios"))]
+use crate::motion::{self, Calibration};
+use crate::motion::{Motion, MotionSum};
+#[cfg(not(target_os = "ios"))]
 use crate::{DEFAULT_LIGHTBAR, Output, PLAYER_1, Vibration, is_dualsense};
 use crate::{TRIGGER_OFF, TriggerEffect};
 #[cfg(not(target_os = "ios"))]
 use hidapi::{BusType, HidApi, HidDevice, HidResult};
-use std::sync::Arc;
 #[cfg(not(target_os = "ios"))]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 #[cfg(not(target_os = "ios"))]
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 #[cfg(not(target_os = "ios"))]
@@ -29,6 +32,8 @@ pub struct DualSense {
     device: HidDevice,
     transport: Transport,
     vibration: Vibration,
+    /// The motion sensors' factory calibration.
+    calibration: Calibration,
     /// The Bluetooth report's sequence number.
     seq: u8,
 }
@@ -75,10 +80,17 @@ impl DualSense {
                 _ => None,
             };
             let vibration = Vibration::of(info.product_id(), version);
+            let mut report = [0; motion::CALIBRATION_LEN];
+            report[0] = motion::CALIBRATION_REPORT;
+            let calibration = match device.get_feature_report(&mut report) {
+                Ok(n) => Calibration::parse(&report[..n]),
+                Err(_) => Calibration::default(),
+            };
             DualSense {
                 device,
                 transport,
                 vibration,
+                calibration,
                 seq: 0,
             }
         }))
@@ -103,6 +115,10 @@ impl DualSense {
     /// An input report (USB 0x01, Bluetooth 0x31), waiting up to `millis` (-1: forever).
     pub fn read(&self, buf: &mut [u8], millis: i32) -> HidResult<usize> {
         self.device.read_timeout(buf, millis)
+    }
+
+    pub fn calibration(&self) -> Calibration {
+        self.calibration
     }
 }
 
@@ -135,6 +151,8 @@ enum Message {
     State(State),
     Rumble(Rumble),
     Scan,
+    /// Read the motion sensors from now on, or stop.
+    Motion(bool),
 }
 
 /// The output thread. Dropping it frees the triggers and stops the motors before it ends; on
@@ -143,6 +161,8 @@ pub struct Link {
     tx: Option<Sender<Message>>,
     /// 0: no pad open, else 1 + the transport.
     open: Arc<AtomicU8>,
+    /// The motion read since the game last took it, while it is asked for.
+    motion: Arc<Mutex<MotionSum>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -152,15 +172,18 @@ impl Link {
     pub fn start() -> Link {
         let (tx, rx) = mpsc::channel();
         let open = Arc::new(AtomicU8::new(0));
+        let motion = Arc::new(Mutex::new(MotionSum::default()));
         let shown = open.clone();
+        let read = motion.clone();
         let thread = std::thread::Builder::new()
             .name("dualsense".into())
-            .spawn(move || Writer::new(shown).run(rx))
+            .spawn(move || Writer::new(shown, read).run(rx))
             .map_err(|e| log::warn!("Horizon: DualSense output: {e}"))
             .ok();
         Link {
             tx: Some(tx),
             open,
+            motion,
             thread,
         }
     }
@@ -171,6 +194,7 @@ impl Link {
         Link {
             tx: None,
             open: Arc::new(AtomicU8::new(0)),
+            motion: Arc::default(),
             thread: None,
         }
     }
@@ -197,6 +221,18 @@ impl Link {
     /// Play a vibration, replacing the one playing.
     pub fn rumble(&self, rumble: Rumble) {
         self.send(Message::Rumble(rumble));
+    }
+
+    /// Read the motion sensors (the gyro is aiming) or stop. While they are read, the thread
+    /// waits on the pad's reports instead of sleeping: nothing more goes over the bus, as the pad
+    /// sends them either way.
+    pub fn read_motion(&self, on: bool) {
+        self.send(Message::Motion(on));
+    }
+
+    /// The motion since the last call; `None` when no report came in.
+    pub fn take_motion(&self) -> Option<Motion> {
+        self.motion.lock().ok()?.take()
     }
 
     fn send(&self, message: Message) {
@@ -237,7 +273,17 @@ struct Writer {
     step_end: Option<Instant>,
     scans_left: u32,
     next_scan: Instant,
+    /// The game wants the motion sensors: the thread reads every report.
+    reading: bool,
+    motion: Arc<Mutex<MotionSum>>,
+    calibration: Calibration,
 }
+
+/// While the motion sensors are read, the longest a read waits for a report before the thread
+/// looks at its messages again. The pad sends one every few milliseconds, so a read rarely waits
+/// this long: it returns as each report arrives, and messages are seen between reports.
+#[cfg(not(target_os = "ios"))]
+const READ_WAIT_MS: u64 = 50;
 
 #[cfg(not(target_os = "ios"))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -290,8 +336,11 @@ impl Handle for DualSense {
 
 #[cfg(not(target_os = "ios"))]
 impl Writer {
-    fn new(open: Arc<AtomicU8>) -> Self {
+    fn new(open: Arc<AtomicU8>, motion: Arc<Mutex<MotionSum>>) -> Self {
         Writer {
+            reading: false,
+            motion,
+            calibration: Calibration::default(),
             api: None,
             pad: None,
             open,
@@ -320,9 +369,27 @@ impl Writer {
             .into_iter()
             .flatten()
             .min();
-            let message = match wake {
-                Some(at) => rx.recv_timeout(at.saturating_duration_since(now)),
-                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            let message = if self.reading && self.pad.is_some() {
+                // Messages first, then the pad's next report (or the next wake, if sooner).
+                match rx.try_recv() {
+                    Ok(message) => Ok(message),
+                    Err(mpsc::TryRecvError::Disconnected) => Err(RecvTimeoutError::Disconnected),
+                    Err(mpsc::TryRecvError::Empty) => {
+                        let wait = wake.map_or(Duration::from_millis(READ_WAIT_MS), |at| {
+                            at.saturating_duration_since(now)
+                                .min(Duration::from_millis(READ_WAIT_MS))
+                        });
+                        if let Err(why) = self.read_reports(wait.as_millis() as i32) {
+                            self.lost(&why);
+                        }
+                        Err(RecvTimeoutError::Timeout)
+                    }
+                }
+            } else {
+                match wake {
+                    Some(at) => rx.recv_timeout(at.saturating_duration_since(now)),
+                    None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                }
             };
             match message {
                 Ok(Message::State(state)) => self.state = state,
@@ -339,6 +406,13 @@ impl Writer {
                     if self.pad.is_none() {
                         self.scans_left = SCAN_TRIES;
                         self.next_scan = Instant::now();
+                    }
+                    continue;
+                }
+                Ok(Message::Motion(on)) => {
+                    self.reading = on;
+                    if let Ok(mut motion) = self.motion.lock() {
+                        motion.restart();
                     }
                     continue;
                 }
@@ -387,6 +461,10 @@ impl Writer {
                         Lights::Waiting(Instant::now() + Duration::from_secs(1))
                     }
                 };
+                self.calibration = pad.calibration();
+                if let Ok(mut motion) = self.motion.lock() {
+                    motion.restart();
+                }
                 self.pad = Some(Box::new(pad));
                 self.sent = None;
                 self.scans_left = 0;
@@ -403,26 +481,16 @@ impl Writer {
 
     /// Over Bluetooth, read the pad's clock until its connection animation is over.
     fn watch_animation(&mut self) {
-        let (Lights::Waiting(deadline), Some(pad)) = (self.lights, self.pad.as_ref()) else {
+        let (Lights::Waiting(deadline), true) = (self.lights, self.pad.is_some()) else {
             return;
         };
-        let mut buf = [0; 80];
-        let mut clock = None;
-        let mut failed = None;
-        loop {
-            match pad.read(&mut buf, 0) {
-                Ok(0) => break,
-                Ok(n) => clock = bluetooth_clock(&buf[..n]).or(clock),
-                Err(e) => {
-                    failed = Some(e.to_string());
-                    break;
-                }
+        let clock = match self.read_reports(0) {
+            Ok(clock) => clock,
+            Err(why) => {
+                self.lost(&why);
+                return;
             }
-        }
-        if let Some(why) = failed {
-            self.lost(&why);
-            return;
-        }
+        };
         let over = match clock {
             Some(clock) => clock >= ANIMATION_OVER,
             // No full report to read the clock from: as SDL, take it as over.
@@ -431,6 +499,34 @@ impl Writer {
         if over {
             self.lights = Lights::Ready;
         }
+    }
+
+    /// Read the reports waiting, the first up to `millis` (0: only those already in): their
+    /// motion goes to the game while it reads it. Returns the last Bluetooth clock seen, or why
+    /// the pad failed.
+    fn read_reports(&mut self, millis: i32) -> Result<Option<u32>, String> {
+        let Some(pad) = self.pad.as_ref() else {
+            return Ok(None);
+        };
+        let mut buf = [0; 80];
+        let mut clock = None;
+        let mut wait = millis;
+        let mut sum = self.reading.then(|| self.motion.lock().ok()).flatten();
+        loop {
+            match pad.read(&mut buf, wait) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let report = &buf[..n];
+                    clock = bluetooth_clock(report).or(clock);
+                    if let (Some(sum), Some(raw)) = (sum.as_mut(), motion::parse(report)) {
+                        sum.push(raw, &self.calibration);
+                    }
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+            wait = 0;
+        }
+        Ok(clock)
     }
 
     /// Move to the vibration's next step once this one is over.
@@ -544,6 +640,9 @@ impl Writer {
         log::info!("DualSense output closed: {why}");
         self.pad = None;
         self.sent = None;
+        if let Ok(mut motion) = self.motion.lock() {
+            motion.restart();
+        }
         self.lights = Lights::Ready;
         self.open.store(0, Ordering::Relaxed);
         self.scans_left = SCAN_TRIES;
@@ -596,7 +695,7 @@ mod tests {
     ) -> (Writer, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         let writes = Arc::new(AtomicUsize::new(0));
         let reads = Arc::new(AtomicUsize::new(0));
-        let mut writer = Writer::new(open.clone());
+        let mut writer = Writer::new(open.clone(), Arc::default());
         writer.pad = Some(Box::new(FakePad {
             writes: writes.clone(),
             reads: reads.clone(),

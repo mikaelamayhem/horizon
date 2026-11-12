@@ -8,7 +8,7 @@ use crate::{
     lang,
     options_ui::Event,
     pad_glyph::{Glyph, Glyphs},
-    settings::{Opt, Settings},
+    settings::{GyroOpt, Opt, Settings},
     settings_shell::{
         self as shell, Binding, Capture, Group, Output, Reset, Row, Screen, Sheet, Shown, Value,
     },
@@ -112,6 +112,17 @@ fn choice_description(opt: Opt, pad: &PadSettings) -> Option<&'static str> {
             gamepad::RadialMode::Hold => "horizon.options.radial_mode.hold.about",
             gamepad::RadialMode::Toggle => "horizon.options.radial_mode.toggle.about",
         },
+        Opt::PadGyro(GyroOpt::Mode) => match pad.gyro.mode {
+            gamepad::GyroMode::Off => "horizon.options.gyro_mode.off.about",
+            gamepad::GyroMode::On => "horizon.options.gyro_mode.on.about",
+            gamepad::GyroMode::Hold => "horizon.options.gyro_mode.hold.about",
+            gamepad::GyroMode::Toggle => "horizon.options.gyro_mode.toggle.about",
+        },
+        Opt::PadGyro(GyroOpt::Space) => match pad.gyro.space {
+            gamepad::GyroSpace::Player => "horizon.options.gyro_space.player.about",
+            gamepad::GyroSpace::Local => "horizon.options.gyro_space.local.about",
+            gamepad::GyroSpace::World => "horizon.options.gyro_space.world.about",
+        },
         Opt::PadRadialStick => match pad.radial_stick {
             gamepad::RadialStick::Right => "horizon.options.radial_stick.right.about",
             gamepad::RadialStick::Left => "horizon.options.radial_stick.left.about",
@@ -185,6 +196,59 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                             Opt::PadLookDeadzone,
                             "How far the right stick moves before the view turns. Raise it if the view drifts.",
                         ),
+                        option(
+                            Opt::PadGyro(GyroOpt::FlickStick),
+                            "horizon.options.flick_stick.about",
+                        ),
+                    ],
+                ),
+                (
+                    "horizon.options.group.gyro",
+                    vec![
+                        option(
+                            Opt::PadGyro(GyroOpt::Mode),
+                            "horizon.options.gyro_mode.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Sensitivity),
+                            "horizon.options.gyro_sensitivity.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Vertical),
+                            "horizon.options.gyro_vertical.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Space),
+                            "horizon.options.gyro_space.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Acceleration),
+                            "horizon.options.gyro_acceleration.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Smoothing),
+                            "horizon.options.gyro_smoothing.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Tightening),
+                            "horizon.options.gyro_tightening.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::StickPauses),
+                            "horizon.options.gyro_stick_pauses.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::AutoCalibrate),
+                            "horizon.options.gyro_auto_calibrate.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::InvertX),
+                            "horizon.options.gyro_invert_x.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::InvertY),
+                            "horizon.options.gyro_invert_y.about",
+                        ),
                     ],
                 ),
                 (
@@ -230,6 +294,10 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                         option(
                             Opt::PadPointerSpeed,
                             "How fast the stick moves the crosshair in inventories.",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Cursor),
+                            "horizon.options.gyro_cursor.about",
                         ),
                         option(
                             Opt::PadScrollSpeed,
@@ -368,6 +436,7 @@ impl Item {
             Item::Option(Opt::PadInvertX) => Some(c.invert_x),
             Item::Option(Opt::PadInvertY) => Some(c.invert_y),
             Item::Option(Opt::PadCraftOnServers) => Some(c.craft_on_servers),
+            Item::Option(Opt::PadGyro(g)) => g.switch(s),
             _ => None,
         }
     }
@@ -1021,6 +1090,8 @@ mod tests {
             (Opt::PadLightbar, 3),
             (Opt::PadRadialMode, 2),
             (Opt::PadRadialStick, 3),
+            (Opt::PadGyro(GyroOpt::Mode), 4),
+            (Opt::PadGyro(GyroOpt::Space), 3),
         ] {
             let setting = option(opt, "the fixed sentence");
             let mut seen = Vec::new();
@@ -1056,6 +1127,8 @@ mod tests {
                 Opt::PadLightbar,
                 Opt::PadRadialMode,
                 Opt::PadRadialStick,
+                Opt::PadGyro(GyroOpt::Mode),
+                Opt::PadGyro(GyroOpt::Space),
             ] {
                 for _ in 0..4 {
                     lang::get(choice_description(opt, &settings.controller).unwrap());

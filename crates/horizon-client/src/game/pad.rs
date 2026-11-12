@@ -126,6 +126,12 @@ pub(super) struct Pads {
     guide_facts: Option<(u64, horizon_client::gameplay_guide::Facts)>,
     /// The guide's rows as last drawn.
     pub(super) guide_shown: Vec<guide::Shown>,
+    /// Gyro aiming's state: its calibration, gravity and filters.
+    pub(super) gyro: gamepad::Gyro,
+    /// The flick stick's state, while the right stick flicks.
+    flick: gamepad::FlickStick,
+    /// The gyro's turn in a menu not yet given to the pointer, in degrees (right, down).
+    pub(super) gyro_cursor: (f32, f32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -254,6 +260,9 @@ mod hardware {
         pub(super) fn pad_vibrate(&mut self, _: Rumble, _: Pulse) {}
         pub(super) fn pad_devices_status(&self) -> Value {
             json!({ "backend": false, "controllers": [] })
+        }
+        pub(super) fn pad_motion(&mut self) -> Option<horizon_client::gamepad::MotionSample> {
+            None
         }
     }
 }
@@ -805,24 +814,60 @@ impl Game<'_> {
         gamepad::move_vector(self.pad.state.left, settings.move_deadzone)
     }
 
-    /// The right stick turns the view, once per frame (`Entity.turn`).
+    /// The right stick and the gyro turn the view, once per frame (`Entity.turn`).
     pub(super) fn pad_look(&mut self, seconds: f32) {
+        // Taken every frame, so what the pad sent while the view wasn't the pad's is dropped.
+        let motion = self.pad_motion();
+        let in_menu = self.pad_in_menu();
+        let pointing = self.settings.controller.enabled && in_menu && self.pad_focused();
+        let looking = self.settings.controller.enabled
+            && !in_menu
+            && self.player.is_some()
+            && self.pad_focused();
+        let stick_free = !(self.pad_radial_captures() && self.pad_radial_selects(1));
+        let scoping = self.scoping();
         let settings = &self.settings.controller;
-        if !settings.enabled
-            || self.pad_in_menu()
-            || self.player.is_none()
-            || !self.pad_focused()
-            || (self.pad_radial_captures() && self.pad_radial_selects(1))
-        {
-            return;
+        let stick_leans = gamepad::radial(self.pad.state.right, settings.look_deadzone) != [0.0; 2];
+        let button = looking && self.pad.holds_action(gamepad::GYRO_BUTTON);
+        let aiming = self.pad.gyro.enabled(settings.gyro.mode, button)
+            && looking
+            && !(settings.gyro.stick_pauses && stick_leans && !settings.flick_stick);
+        let zoom = if scoping { 0.25 } else { 1.0 };
+        // In a menu the gyro moves the pointer whenever it can aim at all.
+        let cursor =
+            pointing && settings.gyro.mode != gamepad::GyroMode::Off && settings.gyro.cursor > 0.0;
+        if !cursor {
+            self.pad.gyro_cursor = (0.0, 0.0);
         }
-        // A long frame (a hitch) must not spin the view.
-        let (yaw, pitch) = gamepad::look_delta(
-            self.pad.state.right,
-            settings,
-            seconds.min(0.1),
-            self.scoping(),
-        );
+        let (mut yaw, mut pitch) = match motion {
+            Some(m) if cursor => {
+                let (x, y) = self.pad.gyro.update(m, &settings.gyro.for_cursor(), true);
+                self.pad.gyro_cursor.0 += x;
+                self.pad.gyro_cursor.1 += y;
+                (0.0, 0.0)
+            }
+            // The gyro follows the pad even while it isn't aiming: gravity and calibration
+            // stay current.
+            Some(m) => {
+                let (yaw, pitch) = self.pad.gyro.update(m, &settings.gyro, aiming);
+                (yaw * zoom, pitch * zoom)
+            }
+            None => (0.0, 0.0),
+        };
+        if !looking || !stick_free {
+            self.pad.flick.reset();
+        } else if settings.flick_stick {
+            // The flick's own clock keeps every degree, so a hitch doesn't cut it short.
+            let turn = self.pad.flick.update(self.pad.state.right, seconds);
+            yaw += if settings.invert_x { -turn } else { turn };
+        } else {
+            self.pad.flick.reset();
+            // A long frame (a hitch) must not spin the view.
+            let (y, p) =
+                gamepad::look_delta(self.pad.state.right, settings, seconds.min(0.1), scoping);
+            yaw += y;
+            pitch += p;
+        }
         if yaw == 0.0 && pitch == 0.0 {
             return;
         }

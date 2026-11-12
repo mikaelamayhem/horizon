@@ -37,6 +37,8 @@ pub(super) struct Devices {
     haptics_tried: bool,
     /// What it was last told to show.
     shown: Option<horizon_dualsense::device::State>,
+    /// The output was asked to read the motion sensors.
+    reading_motion: bool,
     /// While `PadRouter` has the reader and isn't lending it: what `pad status` lists.
     routed: Option<Vec<Value>>,
     /// While `PadRouter` has the reader and isn't lending it: vibrations it hasn't played yet.
@@ -212,6 +214,7 @@ impl Pads {
             self.devices.rumbles.clear();
             self.devices.dualsense = false;
             self.devices.output = None;
+            self.devices.reading_motion = false;
             self.devices.shown = None;
         }
     }
@@ -433,6 +436,7 @@ impl PadRouter {
         if pads.devices.active != Some(id) {
             pads.devices.rumbles.clear();
             pads.devices.output = None;
+            pads.devices.reading_motion = false;
             pads.devices.shown = None;
         }
         pads.devices.dualsense = self
@@ -558,6 +562,7 @@ impl Game<'_> {
     /// Controllers are turned off: dropping the DualSense's output frees its triggers.
     pub(super) fn pad_output_off(&mut self) {
         self.pad.devices.output = None;
+        self.pad.devices.reading_motion = false;
         self.pad.devices.shown = None;
     }
 
@@ -570,6 +575,7 @@ impl Game<'_> {
             && self.pad.devices.output.is_none()
         {
             self.pad.devices.output = Some(horizon_dualsense::Link::start());
+            self.pad.devices.reading_motion = false;
         }
         self.pad_haptics();
         self.pad_show();
@@ -713,10 +719,31 @@ impl Game<'_> {
         }
     }
 
+    /// The DualSense's motion since the last frame, while the gyro may aim. The pad's reports
+    /// are read only then: with the gyro off the output thread sleeps as before.
+    pub(super) fn pad_motion(&mut self) -> Option<gamepad::MotionSample> {
+        let wanted = self.settings.controller.enabled
+            && self.settings.controller.gyro.mode != gamepad::GyroMode::Off;
+        let changed = self.pad.devices.reading_motion != wanted;
+        let output = self.pad_output()?;
+        if changed {
+            output.read_motion(wanted);
+        }
+        let m = output.take_motion();
+        self.pad.devices.reading_motion = wanted;
+        let m = m?;
+        Some(gamepad::MotionSample {
+            gyro: m.gyro,
+            accel: m.accel,
+            seconds: m.seconds,
+        })
+    }
+
     /// Release the DualSense's output (the game is quitting).
     pub(in crate::game) fn pad_close_output(&mut self) {
         self.pad.devices.haptics = None;
         self.pad.devices.output = None;
+        self.pad.devices.reading_motion = false;
     }
 
     /// Play a vibration on the active pad: a DualSense through its own report, else gilrs' force

@@ -765,6 +765,24 @@ impl Settings {
     }
 }
 
+/// Controller Settings' gyro aiming and flick stick rows (`options_ui/gyro_opts.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GyroOpt {
+    Mode,
+    Space,
+    Sensitivity,
+    Vertical,
+    Smoothing,
+    Tightening,
+    Acceleration,
+    AutoCalibrate,
+    StickPauses,
+    InvertX,
+    InvertY,
+    Cursor,
+    FlickStick,
+}
+
 /// One option instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Opt {
@@ -878,6 +896,8 @@ pub enum Opt {
     PadRadialMode,
     /// The stick the radial menu selects with (`PadSettings::radial_stick`).
     PadRadialStick,
+    /// Gyro aiming and the flick stick (`PadSettings::gyro`, `PadSettings::flick_stick`).
+    PadGyro(GyroOpt),
     /// `options.modelPart.*`: one skin layer (index into `options_file::MODEL_PARTS`).
     ModelPart(usize),
     /// A slider of a page a crate registered (`horizon_hooks::pages`): (page, row).

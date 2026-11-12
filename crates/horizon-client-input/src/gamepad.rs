@@ -255,9 +255,15 @@ pub const HOTBAR_PREVIOUS: &str = "pad.hotbarPrevious";
 pub const HOTBAR_NEXT: &str = "pad.hotbarNext";
 /// Held, opens the radial menu (`radial.rs`).
 pub const RADIAL: &str = "pad.radial";
+/// The gyro's button: what it does depends on the gyro's mode (`GyroMode`).
+pub const GYRO_BUTTON: &str = "pad.gyro";
 
 mod radial_file;
 pub use radial_file::{RadialMode, RadialStick, opener_refused};
+mod flick;
+pub use flick::FlickStick;
+mod gyro;
+pub use gyro::{Gyro, GyroMode, GyroSettings, GyroSpace, MotionSample, cursor_pixels};
 
 /// The `bindLayout` the settings file is written in. 1: the defaults of the binds list as they
 /// are; 2: the radial menu's opener resolved against the player's own buttons.
@@ -305,6 +311,7 @@ pub const ACTIONS: &[(&str, Option<Button>)] = &[
     ("key.hotbar.7", None),
     ("key.hotbar.8", None),
     ("key.hotbar.9", None),
+    (GYRO_BUTTON, None),
 ];
 
 /// How a bindable action reaches the game: one of its own handlers, shared
@@ -341,7 +348,7 @@ pub fn route(action: &str) -> Option<Route> {
         "key.smoothCamera" => Some(Route::SmoothCamera),
         "key.fullscreen" => Some(Route::Fullscreen),
         "key.debug.overlay" => Some(Route::DebugOverlay),
-        "key.saveToolbarActivator" | "key.loadToolbarActivator" => Some(Route::Held),
+        "key.saveToolbarActivator" | "key.loadToolbarActivator" | GYRO_BUTTON => Some(Route::Held),
         _ => {
             let default = crate::keybinds::KeyBinds::default_of(action);
             crate::keybinds::mouse_button(default)
@@ -361,6 +368,7 @@ pub fn action_caption(action: &str) -> &str {
         HOTBAR_PREVIOUS => "Hotbar: Previous Slot",
         HOTBAR_NEXT => "Hotbar: Next Slot",
         RADIAL => RADIAL_CAPTION,
+        GYRO_BUTTON => "horizon.pad.action.gyro",
         other => other,
     }
 }
@@ -681,6 +689,10 @@ pub struct PadSettings {
     pub radial_mode: RadialMode,
     /// The stick that selects in it.
     pub radial_stick: RadialStick,
+    /// Gyro aiming (a DualSense's motion sensors).
+    pub gyro: GyroSettings,
+    /// The right stick flicks and turns the view instead of looking (`FlickStick`).
+    pub flick_stick: bool,
     /// Lines this game doesn't read (a newer Horizon's settings, an action it doesn't have, a
     /// button it doesn't know), kept as they were so a save here loses nothing.
     extra: Vec<(String, String)>,
@@ -719,6 +731,8 @@ impl Default for PadSettings {
             radial: Default::default(),
             radial_mode: RadialMode::Hold,
             radial_stick: RadialStick::Right,
+            gyro: GyroSettings::default(),
+            flick_stick: false,
             extra: Vec::new(),
             bind_layout: BIND_LAYOUT,
             openers: radial_file::StickOpeners::default(),
@@ -799,6 +813,19 @@ impl PadSettings {
                 "repeatInterval" => s.repeat_interval = bounded(s.repeat_interval, 0.03, 0.3),
                 "radialMode" => s.radial_mode = RadialMode::parse(value),
                 "radialStick" => s.radial_stick = RadialStick::parse(value),
+                "flickStick" => s.flick_stick = flag(s.flick_stick),
+                "gyroMode" => s.gyro.mode = GyroMode::parse(value),
+                "gyroSpace" => s.gyro.space = GyroSpace::parse(value),
+                "gyroSensitivity" => s.gyro.sensitivity = bounded(s.gyro.sensitivity, 0.1, 20.0),
+                "gyroVertical" => s.gyro.vertical = bounded(s.gyro.vertical, 0.0, 2.0),
+                "gyroSmoothing" => s.gyro.smoothing = bounded(s.gyro.smoothing, 0.0, 50.0),
+                "gyroTightening" => s.gyro.tightening = bounded(s.gyro.tightening, 0.0, 50.0),
+                "gyroAcceleration" => s.gyro.acceleration = bounded(s.gyro.acceleration, 1.0, 4.0),
+                "gyroAutoCalibrate" => s.gyro.auto_calibrate = flag(s.gyro.auto_calibrate),
+                "gyroStickPauses" => s.gyro.stick_pauses = flag(s.gyro.stick_pauses),
+                "gyroInvertX" => s.gyro.invert_x = flag(s.gyro.invert_x),
+                "gyroInvertY" => s.gyro.invert_y = flag(s.gyro.invert_y),
+                "gyroCursor" => s.gyro.cursor = bounded(s.gyro.cursor, 0.0, 20.0),
                 // Read after the loop, from the whole text.
                 "bindLayout" => {}
                 // The radial menu's pages (`radial::Pages::parse`).
@@ -929,6 +956,23 @@ impl PadSettings {
             "radialMode:{}\nradialStick:{}\n",
             self.radial_mode.name(),
             self.radial_stick.name()
+        ));
+        let g = &self.gyro;
+        text.push_str(&format!(
+            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\n",
+            bool_text(self.flick_stick),
+            g.mode.name(),
+            g.space.name(),
+            g.sensitivity,
+            g.vertical,
+            g.smoothing,
+            g.tightening,
+            g.acceleration,
+            bool_text(g.auto_calibrate),
+            bool_text(g.stick_pauses),
+            bool_text(g.invert_x),
+            bool_text(g.invert_y),
+            g.cursor,
         ));
         text.push_str(&format!("bindLayout:{}\n", self.bind_layout));
         for (key, value) in &self.extra {
@@ -1978,6 +2022,25 @@ bind_key.hotbar.2:north
         assert_eq!(s.binding("key.advancements"), Some(Button::DPadLeft));
         assert_eq!(s.binding("key.drop"), Some(Button::DPadDown));
         assert_eq!(PadSettings::parse(&s.serialize()), s);
+    }
+
+    #[test]
+    fn gyro_settings_round_trip_and_stay_in_range() {
+        let s = PadSettings::parse(
+            "gyroMode:toggle\ngyroSpace:world\ngyroSensitivity:4.5\ngyroVertical:0.8\ngyroSmoothing:5\ngyroTightening:3\ngyroAcceleration:2\ngyroAutoCalibrate:false\ngyroStickPauses:true\ngyroInvertY:true\nflickStick:true\nbind_pad.gyro:lb\n",
+        );
+        assert_eq!(s.gyro.mode, GyroMode::Toggle);
+        assert_eq!(s.gyro.space, GyroSpace::World);
+        assert_eq!(s.gyro.sensitivity, 4.5);
+        assert!(!s.gyro.auto_calibrate && s.gyro.stick_pauses && s.gyro.invert_y);
+        assert!(s.flick_stick);
+        assert_eq!(s.binding(GYRO_BUTTON), Some(Button::LeftBumper));
+        assert_eq!(PadSettings::parse(&s.serialize()), s);
+        // Out of range clamps; nonsense keeps the default.
+        let s = PadSettings::parse("gyroSensitivity:500\ngyroAcceleration:0\ngyroMode:sideways\n");
+        assert_eq!(s.gyro.sensitivity, 20.0);
+        assert_eq!(s.gyro.acceleration, 1.0);
+        assert_eq!(s.gyro.mode, GyroMode::Off);
     }
 
     #[test]

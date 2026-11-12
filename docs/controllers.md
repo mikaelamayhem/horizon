@@ -975,6 +975,48 @@ and the writer thread. Verified against the references only: everything
 else, the flag-less stop, the attenuation and LED reset reports, and all of
 Bluetooth.
 
+## Gyro aiming and flick stick
+
+Gyro aiming follows JibbSmart's [GyroWiki](http://gyrowiki.jibbsmart.com/) ("the gyro is a
+mouse"); every setting is in its units, so a player's numbers carry over from other games and
+JoyShockMapper. All of it is in Controller Settings > General, under Look and Gyro Aiming, saved as
+`gyro*` and `flickStick` in `horizon-controller.txt`. Gyro aiming is off by default.
+
+- **Where the motion comes from.** gilrs reports no motion sensors, so a DualSense's gyro and
+  accelerometer are read from its own input reports over HID, by the same thread that writes its
+  output (`horizon-dualsense`'s `motion.rs`). Reading adds nothing on the USB or Bluetooth link:
+  the pad sends those reports whether anyone reads them or not, and the thread only waits on them
+  while gyro aiming is on (otherwise it sleeps as before). Each report is summed by the pad's own
+  sensor clock, so the turn is exact however many reports arrive per frame. The factory calibration
+  (feature report 0x05) scales each axis. Bluetooth works where the DualSense output does (Linux, or
+  `HORIZON_DUALSENSE_BT=1` elsewhere: see "DualSense output").
+- **Gyro Aiming** (`gyroMode`): Off; On (the Gyro Button, unbound by default, pauses it while held,
+  as one lifts a mouse); Hold Gyro Button; Toggle with Gyro Button. Bind the button under Bindings.
+- **Gyro Sensitivity** (`gyroSensitivity`, 0.1 to 10, default 2.0x): 1.0x turns the view as far as
+  the pad turns. **Gyro Vertical Sensitivity** (`gyroVertical`) scales up and down. A spyglass
+  slows it as it slows the stick.
+- **Gyro Space** (`gyroSpace`): Player (the default, the GyroWiki's recommendation: turning yaw and
+  roll blended by gravity with a 1.41 slack, so the pad can be held at any angle), Local (the pad's
+  own yaw) or World (the real vertical only). Gravity comes from the GyroWiki's sensor fusion.
+- **Gyro Acceleration** (`gyroAcceleration`, off at 1.0x): the sensitivity's multiple at 75 °/s
+  and over. **Gyro Smoothing** and **Gyro Tightening** (`gyroSmoothing`, `gyroTightening`, °/s, off
+  at 0): soft tiered smoothing averages slower turns over 0.125 s without losing any of them;
+  tightening softens turns below the threshold, never a hard cutoff.
+- **Gyro Auto-Calibration** (`gyroAutoCalibrate`, on): a pad lying still (accelerometer steady
+  within 0.008 g, gyro within 0.6 °/s of its mean, for 0.6 s) takes its gyro's mean as the offset.
+  A pad held in a hand never counts as still, so a slow deliberate turn isn't calibrated away.
+- **Right Stick Pauses Gyro** (`gyroStickPauses`, off), **Gyro Invert X/Y**.
+- **Gyro Pointer** (`gyroCursor`, default 8.0x, off at 0): in menus, with gyro aiming not Off, the
+  gyro moves the pointer alongside the left stick. JoyShockMapper's 2D unit: screen widths for a
+  whole turn, so 8.0x crosses the screen in 45 degrees. It is always smoothed and tightened at
+  5 °/s or more.
+- **Flick Stick** (`flickStick`, off): the right stick no longer looks. Pushed to the edge (0.9) it
+  turns the view to face where it points, over 0.1 s, eased out; held there, rotating it turns the
+  view by as much (small rotations smoothed, nothing lost). It turns left and right only: up and
+  down are the gyro's. It works on every pad.
+- Splitscreen: the gyro aims for the player whose pad has the DualSense's output, the first
+  DualSense hidapi lists. Several DualSenses each aiming their own player is still to come.
+
 ## Steam Deck
 
 - In Game Mode, or any game launched through Steam, Steam Input presents the

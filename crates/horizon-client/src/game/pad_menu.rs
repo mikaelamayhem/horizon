@@ -1557,7 +1557,14 @@ impl Game<'_> {
             if tuning.over_target_speed != 1.0 && self.pad_over_target() {
                 speed *= tuning.over_target_speed;
             }
-            let (dx, dy) = gamepad::cursor_delta(state.left, move_deadzone, speed);
+            let (mut dx, mut dy) = gamepad::cursor_delta(state.left, move_deadzone, speed);
+            let turn = std::mem::take(&mut self.pad.gyro_cursor);
+            if let Some(batch) = self.gui_scale() {
+                let (gx, gy) =
+                    gamepad::cursor_pixels(turn, self.settings.controller.gyro.cursor, batch.width);
+                dx += gx;
+                dy += gy;
+            }
             if dx != 0.0 || dy != 0.0 {
                 self.pad.menu.glide = None;
                 self.pad_take_pointer(event_loop);

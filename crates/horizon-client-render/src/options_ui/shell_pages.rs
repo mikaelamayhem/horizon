@@ -2,6 +2,8 @@
 //! opens, what a shell's outputs do here, and the radial menu's pages (`radial_editor`), whose
 //! name entry is drawn here in place of a shell, and whose rows of Controller Settings step here.
 use super::{Event, OptionsUi, Page, tr};
+#[path = "gyro_opts.rs"]
+mod gyro_opts;
 use crate::{
     gamepad,
     hud::{HudAtlas, HudBatch},
