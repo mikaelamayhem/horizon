@@ -4,7 +4,8 @@
 //!
 //! The state block's first bytes, as SDL's `PS5StatePacketCommon_t` and the kernel's
 //! `dualsense_input_report`: the sticks (0..4, 0 is left and up), the triggers (4, 5), then the
-//! hat and the buttons (7..10).
+//! hat and the buttons (7..10), and the touchpad's two touches (32, 36: the top bit set while
+//! that finger is up).
 use crate::motion::state_block;
 
 /// One report's controls, raw.
@@ -17,6 +18,8 @@ pub struct RawInput {
     /// The hat and face buttons, then the shoulders, menu buttons and stick clicks, then the PS
     /// button, the touchpad's click and mute.
     pub buttons: [u8; 3],
+    /// A finger rests on the touchpad.
+    pub touching: bool,
 }
 
 /// The pad's buttons, by their PlayStation names.
@@ -47,6 +50,9 @@ pub fn parse(report: &[u8]) -> Option<RawInput> {
         sticks: [[b[0], b[1]], [b[2], b[3]]],
         triggers: [b[4], b[5]],
         buttons: [b[7], b[8], b[9]],
+        touching: [32, 36]
+            .iter()
+            .any(|&at| b.get(at).is_some_and(|t| t & 0x80 == 0)),
     })
 }
 
@@ -104,7 +110,11 @@ mod tests {
         r[8] = 0x03 | 0x20;
         r[9] = 0x02 | 0x20;
         r[10] = 0x01;
+        // One finger up, the other down.
+        r[33] = 0x80;
+        r[37] = 0x01;
         let input = parse(&r).unwrap();
+        assert!(input.touching);
         let held: Vec<DsButton> = [
             DsButton::Cross,
             DsButton::Circle,

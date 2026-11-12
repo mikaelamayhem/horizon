@@ -761,6 +761,13 @@ impl Game<'_> {
         })
     }
 
+    /// A finger rests on the DualSense's touchpad (read while the gyro is).
+    pub(super) fn pad_touching(&self) -> bool {
+        self.pad_output()
+            .and_then(|o| o.input())
+            .is_some_and(|i| i.touching)
+    }
+
     /// Release the DualSense's output (the game is quitting).
     pub(in crate::game) fn pad_close_output(&mut self) {
         self.pad.devices.haptics = None;

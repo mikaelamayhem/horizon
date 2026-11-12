@@ -89,6 +89,8 @@ pub struct GyroSettings {
     pub auto_calibrate: bool,
     /// The right stick, leant past its deadzone, pauses the gyro.
     pub stick_pauses: bool,
+    /// A finger on a DualSense's touchpad pauses the gyro.
+    pub touch_pauses: bool,
     pub invert_x: bool,
     pub invert_y: bool,
     /// In menus the gyro moves the pointer: screen widths for a whole turn of the pad
@@ -109,9 +111,11 @@ impl Default for GyroSettings {
             acceleration: 1.0,
             auto_calibrate: true,
             stick_pauses: false,
+            touch_pauses: true,
             invert_x: false,
             invert_y: false,
-            cursor: 8.0,
+            // Off: a pointer that moves with the pad surprises a player who only wanted to aim.
+            cursor: 0.0,
         }
     }
 }

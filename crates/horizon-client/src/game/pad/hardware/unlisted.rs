@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 /// How often to look for an unlisted pad while none is open: nothing else says when one is
 /// plugged in.
 const RESCAN: Duration = Duration::from_secs(3);
+/// How long the pad may be gone before it counts as unplugged: Windows sometimes drops the
+/// handle of a pad still plugged in, and the thread opens it again within seconds.
+const GRACE: Duration = Duration::from_secs(10);
 
 /// Whether this system needs it: elsewhere gilrs lists every DualSense, and the HID scan would
 /// be wasted work. `HORIZON_DUALSENSE_HID=1` turns it on anywhere, `0` off.
@@ -33,6 +36,8 @@ pub(super) struct Unlisted {
     /// Something on it was held at the last read, so a press only takes over once.
     touched: bool,
     next_scan: Option<Instant>,
+    /// When reports stopped, while that is shorter than [`GRACE`].
+    missing_since: Option<Instant>,
 }
 
 impl Unlisted {
@@ -80,20 +85,23 @@ impl Pads {
             d.unlisted.next_scan = Some(now + RESCAN);
         }
         let state = output.input().map(|input| state(&input));
-        let present = state.is_some();
-        if present != d.unlisted.present {
-            d.unlisted.present = present;
-            if present {
+        if state.is_some() {
+            d.unlisted.missing_since = None;
+            if !d.unlisted.present {
+                d.unlisted.present = true;
                 log::info!("Controller connected: DualSense (read over HID)");
                 self.connections
                     .push(Connection::Connected(GlyphStyle::PlayStation));
-            } else {
-                log::info!("Controller disconnected: DualSense (read over HID)");
-                self.connections.push(Connection::Disconnected {
-                    active: d.unlisted.active,
-                });
-                d.unlisted.active = false;
             }
+        } else if d.unlisted.present && now - *d.unlisted.missing_since.get_or_insert(now) >= GRACE
+        {
+            d.unlisted.present = false;
+            d.unlisted.missing_since = None;
+            log::info!("Controller disconnected: DualSense (read over HID)");
+            self.connections.push(Connection::Disconnected {
+                active: d.unlisted.active,
+            });
+            d.unlisted.active = false;
         }
         let touched = state.as_ref().is_some_and(touched);
         if touched && !d.unlisted.touched {

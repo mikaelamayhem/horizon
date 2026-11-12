@@ -823,6 +823,7 @@ impl PadSettings {
                 "gyroAcceleration" => s.gyro.acceleration = bounded(s.gyro.acceleration, 1.0, 4.0),
                 "gyroAutoCalibrate" => s.gyro.auto_calibrate = flag(s.gyro.auto_calibrate),
                 "gyroStickPauses" => s.gyro.stick_pauses = flag(s.gyro.stick_pauses),
+                "gyroTouchPauses" => s.gyro.touch_pauses = flag(s.gyro.touch_pauses),
                 "gyroInvertX" => s.gyro.invert_x = flag(s.gyro.invert_x),
                 "gyroInvertY" => s.gyro.invert_y = flag(s.gyro.invert_y),
                 "gyroCursor" => s.gyro.cursor = bounded(s.gyro.cursor, 0.0, 20.0),
@@ -959,7 +960,7 @@ impl PadSettings {
         ));
         let g = &self.gyro;
         text.push_str(&format!(
-            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\n",
+            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroTouchPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\n",
             bool_text(self.flick_stick),
             g.mode.name(),
             g.space.name(),
@@ -970,6 +971,7 @@ impl PadSettings {
             g.acceleration,
             bool_text(g.auto_calibrate),
             bool_text(g.stick_pauses),
+            bool_text(g.touch_pauses),
             bool_text(g.invert_x),
             bool_text(g.invert_y),
             g.cursor,
@@ -2027,12 +2029,17 @@ bind_key.hotbar.2:north
     #[test]
     fn gyro_settings_round_trip_and_stay_in_range() {
         let s = PadSettings::parse(
-            "gyroMode:toggle\ngyroSpace:world\ngyroSensitivity:4.5\ngyroVertical:0.8\ngyroSmoothing:5\ngyroTightening:3\ngyroAcceleration:2\ngyroAutoCalibrate:false\ngyroStickPauses:true\ngyroInvertY:true\nflickStick:true\nbind_pad.gyro:lb\n",
+            "gyroMode:toggle\ngyroSpace:world\ngyroSensitivity:4.5\ngyroVertical:0.8\ngyroSmoothing:5\ngyroTightening:3\ngyroAcceleration:2\ngyroAutoCalibrate:false\ngyroStickPauses:true\ngyroTouchPauses:false\ngyroInvertY:true\nflickStick:true\nbind_pad.gyro:lb\n",
         );
         assert_eq!(s.gyro.mode, GyroMode::Toggle);
         assert_eq!(s.gyro.space, GyroSpace::World);
         assert_eq!(s.gyro.sensitivity, 4.5);
-        assert!(!s.gyro.auto_calibrate && s.gyro.stick_pauses && s.gyro.invert_y);
+        assert!(
+            !s.gyro.auto_calibrate
+                && s.gyro.stick_pauses
+                && !s.gyro.touch_pauses
+                && s.gyro.invert_y
+        );
         assert!(s.flick_stick);
         assert_eq!(s.binding(GYRO_BUTTON), Some(Button::LeftBumper));
         assert_eq!(PadSettings::parse(&s.serialize()), s);

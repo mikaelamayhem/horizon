@@ -264,6 +264,9 @@ mod hardware {
         pub(super) fn pad_motion(&mut self) -> Option<horizon_client::gamepad::MotionSample> {
             None
         }
+        pub(super) fn pad_touching(&self) -> bool {
+            false
+        }
     }
 }
 
@@ -826,12 +829,14 @@ impl Game<'_> {
             && self.pad_focused();
         let stick_free = !(self.pad_radial_captures() && self.pad_radial_selects(1));
         let scoping = self.scoping();
+        let touching = self.pad_touching();
         let settings = &self.settings.controller;
         let stick_leans = gamepad::radial(self.pad.state.right, settings.look_deadzone) != [0.0; 2];
         let button = looking && self.pad.holds_action(gamepad::GYRO_BUTTON);
         let aiming = self.pad.gyro.enabled(settings.gyro.mode, button)
             && looking
-            && !(settings.gyro.stick_pauses && stick_leans && !settings.flick_stick);
+            && !(settings.gyro.stick_pauses && stick_leans && !settings.flick_stick)
+            && !(settings.gyro.touch_pauses && touching);
         let zoom = if scoping { 0.25 } else { 1.0 };
         // In a menu the gyro moves the pointer whenever it can aim at all.
         let cursor =

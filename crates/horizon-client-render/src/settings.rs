@@ -777,6 +777,7 @@ pub enum GyroOpt {
     Acceleration,
     AutoCalibrate,
     StickPauses,
+    TouchPauses,
     InvertX,
     InvertY,
     Cursor,

@@ -21,6 +21,7 @@ impl GyroOpt {
             GyroOpt::Acceleration => "horizon.options.gyro_acceleration",
             GyroOpt::AutoCalibrate => "horizon.options.gyro_auto_calibrate",
             GyroOpt::StickPauses => "horizon.options.gyro_stick_pauses",
+            GyroOpt::TouchPauses => "horizon.options.gyro_touch_pauses",
             GyroOpt::InvertX => "horizon.options.gyro_invert_x",
             GyroOpt::InvertY => "horizon.options.gyro_invert_y",
             GyroOpt::Cursor => "horizon.options.gyro_cursor",
@@ -57,6 +58,7 @@ impl GyroOpt {
         Some(match self {
             GyroOpt::AutoCalibrate => c.gyro.auto_calibrate,
             GyroOpt::StickPauses => c.gyro.stick_pauses,
+            GyroOpt::TouchPauses => c.gyro.touch_pauses,
             GyroOpt::InvertX => c.gyro.invert_x,
             GyroOpt::InvertY => c.gyro.invert_y,
             GyroOpt::FlickStick => c.flick_stick,
@@ -173,6 +175,7 @@ impl Opt {
             GyroOpt::Space => c.gyro.space = step(&GyroSpace::ALL, c.gyro.space, back),
             GyroOpt::AutoCalibrate => c.gyro.auto_calibrate = !c.gyro.auto_calibrate,
             GyroOpt::StickPauses => c.gyro.stick_pauses = !c.gyro.stick_pauses,
+            GyroOpt::TouchPauses => c.gyro.touch_pauses = !c.gyro.touch_pauses,
             GyroOpt::InvertX => c.gyro.invert_x = !c.gyro.invert_x,
             GyroOpt::InvertY => c.gyro.invert_y = !c.gyro.invert_y,
             GyroOpt::FlickStick => c.flick_stick = !c.flick_stick,

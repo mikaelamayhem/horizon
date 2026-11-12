@@ -244,6 +244,10 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                             "horizon.options.gyro_stick_pauses.about",
                         ),
                         option(
+                            Opt::PadGyro(GyroOpt::TouchPauses),
+                            "horizon.options.gyro_touch_pauses.about",
+                        ),
+                        option(
                             Opt::PadGyro(GyroOpt::AutoCalibrate),
                             "horizon.options.gyro_auto_calibrate.about",
                         ),

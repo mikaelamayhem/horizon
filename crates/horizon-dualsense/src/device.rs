@@ -563,17 +563,23 @@ impl Writer {
         let mut buf = [0; 80];
         let mut clock = None;
         let mut wait = millis;
-        let mut sum = self.reading.then(|| self.motion.lock().ok()).flatten();
         loop {
+            // No lock is held while a read waits: the game takes the motion every frame, and a
+            // thread that waits on the pad holding it, then takes it again at once, starves the
+            // game (one frame a second, seen on Windows).
             match pad.read(&mut buf, wait) {
                 Ok(0) => break,
                 Ok(n) => {
                     let report = &buf[..n];
                     clock = bluetooth_clock(report).or(clock);
-                    if let (Some(sum), Some(raw)) = (sum.as_mut(), motion::parse(report)) {
+                    if self.reading
+                        && let Some(raw) = motion::parse(report)
+                        && let Ok(mut sum) = self.motion.lock()
+                    {
                         sum.push(raw, &self.calibration);
                     }
-                    if self.reading_input
+                    // The gyro reads the touchpad too (a finger on it pauses the gyro).
+                    if (self.reading_input || self.reading)
                         && let Some(raw) = crate::input::parse(report)
                         && let Ok(mut input) = self.input.lock()
                     {

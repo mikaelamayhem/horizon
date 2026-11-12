@@ -1011,8 +1011,9 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
 - **Gyro Auto-Calibration** (`gyroAutoCalibrate`, on): a pad lying still (accelerometer steady
   within 0.008 g, gyro within 0.6 °/s of its mean, for 0.6 s) takes its gyro's mean as the offset.
   A pad held in a hand never counts as still, so a slow deliberate turn isn't calibrated away.
-- **Right Stick Pauses Gyro** (`gyroStickPauses`, off), **Gyro Invert X/Y**.
-- **Gyro Pointer** (`gyroCursor`, default 8.0x, off at 0): in menus, with gyro aiming not Off, the
+- **Right Stick Pauses Gyro** (`gyroStickPauses`, off), **Touchpad Pauses Gyro** (`gyroTouchPauses`,
+  on: a finger resting on a DualSense's touchpad, read from the same reports as the gyro), **Gyro Invert X/Y**.
+- **Gyro Pointer** (`gyroCursor`, off by default; 8.0x is a good start): in menus, with gyro aiming not Off, the
   gyro moves the pointer alongside the left stick. JoyShockMapper's 2D unit: screen widths for a
   whole turn, so 8.0x crosses the screen in 45 degrees. It is always smoothed and tightened at
   5 °/s or more.
