@@ -1006,17 +1006,21 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   own yaw) or World (the real vertical only). Gravity comes from the GyroWiki's sensor fusion.
 - **Gyro Acceleration** (`gyroAcceleration`, off at 1.0x): the sensitivity's multiple at 75 °/s
   and over. **Gyro Smoothing** and **Gyro Tightening** (`gyroSmoothing`, `gyroTightening`, °/s, off
-  at 0; smoothing defaults to a light 3 °/s): soft tiered smoothing averages slower turns over 0.125 s without losing any of them;
+  at 0; a light 3 °/s and 2 °/s by default): soft tiered smoothing averages slower turns over 0.125 s without losing any of them;
   tightening softens turns below the threshold, never a hard cutoff.
 - **Gyro Auto-Calibration** (`gyroAutoCalibrate`, on): a pad lying still (accelerometer steady
   within 0.008 g, gyro within 0.6 °/s of its mean, for 0.6 s) takes its gyro's mean as the offset.
   A pad held in a hand never counts as still, so a slow deliberate turn isn't calibrated away.
 - **Right Stick Pauses Gyro** (`gyroStickPauses`, off), **Touchpad Pauses Gyro** (`gyroTouchPauses`,
   on: a finger resting on a DualSense's touchpad, read from the same reports as the gyro), **Gyro Invert X/Y**.
-- **Gyro Pointer** (`gyroCursor`, off by default; 8.0x is a good start): in menus, with gyro aiming not Off, the
-  gyro moves the pointer alongside the left stick. JoyShockMapper's 2D unit: screen widths for a
-  whole turn, so 8.0x crosses the screen in 45 degrees. It is always smoothed and tightened at
-  5 °/s or more.
+- **Gyro Pointer**, its own page (`gyroCursor`, off by default; 8.0x is a good start): in menus the
+  gyro moves the pointer alongside the left stick, whatever Gyro Aiming says (a player may point
+  with the pad and aim with the stick). JoyShockMapper's 2D unit: screen widths for a whole turn, so
+  8.0x crosses the screen in 45 degrees. **Pointer Smoothing** and **Pointer Tightening**
+  (`gyroCursorSmoothing`, `gyroCursorTightening`, default 8 and 6 °/s) are heavier than aiming's.
+- **Pages.** Gyro (aiming, steadiness, pausing, flick stick) and Gyro Pointer are pages of their
+  own, greyed with a reason while the controller in use has no gyro the game reads (only a
+  DualSense today); with none plugged in they can be set up ahead.
 - **Flick Stick** (`flickStick`, off): the right stick no longer looks. Pushed to the edge (0.9) it
   turns the view to face where it points, over 0.1 s, eased out; held there, rotating it turns the
   view by as much (small rotations smoothed, nothing lost). It turns left and right only: up and

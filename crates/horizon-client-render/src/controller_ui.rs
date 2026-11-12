@@ -19,14 +19,24 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     General,
+    Gyro,
+    GyroPointer,
     Bindings,
     Device,
 }
 impl Page {
-    pub const ALL: [Page; 3] = [Page::General, Page::Bindings, Page::Device];
+    pub const ALL: [Page; 5] = [
+        Page::General,
+        Page::Gyro,
+        Page::GyroPointer,
+        Page::Bindings,
+        Page::Device,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Page::General => "General",
+            Page::Gyro => "horizon.options.page.gyro",
+            Page::GyroPointer => "horizon.options.page.gyro_pointer",
             Page::Bindings => "Bindings",
             Page::Device => "Device",
         }
@@ -35,6 +45,8 @@ impl Page {
     pub fn about(self) -> &'static str {
         match self {
             Page::General => "How the sticks turn and move you, and how menus repeat and scroll.",
+            Page::Gyro => "horizon.options.page.gyro.about",
+            Page::GyroPointer => "horizon.options.page.gyro_pointer.about",
             Page::Bindings => "Which button does what. Each player has their own.",
             Page::Device => "The controller the game sees, its button glyphs and its feedback.",
         }
@@ -198,67 +210,6 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                             Opt::PadLookDeadzone,
                             "How far the right stick moves before the view turns. Raise it if the view drifts.",
                         ),
-                        option(
-                            Opt::PadGyro(GyroOpt::FlickStick),
-                            "horizon.options.flick_stick.about",
-                        ),
-                    ],
-                ),
-                (
-                    "horizon.options.group.gyro",
-                    vec![
-                        option(
-                            Opt::PadGyro(GyroOpt::Mode),
-                            "horizon.options.gyro_mode.about",
-                        ),
-                        Setting {
-                            item: Item::Bind(gamepad::GYRO_BUTTON),
-                            text: BIND_TEXT,
-                        },
-                        option(
-                            Opt::PadGyro(GyroOpt::Sensitivity),
-                            "horizon.options.gyro_sensitivity.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::Vertical),
-                            "horizon.options.gyro_vertical.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::Space),
-                            "horizon.options.gyro_space.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::Acceleration),
-                            "horizon.options.gyro_acceleration.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::Smoothing),
-                            "horizon.options.gyro_smoothing.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::Tightening),
-                            "horizon.options.gyro_tightening.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::StickPauses),
-                            "horizon.options.gyro_stick_pauses.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::TouchPauses),
-                            "horizon.options.gyro_touch_pauses.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::AutoCalibrate),
-                            "horizon.options.gyro_auto_calibrate.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::InvertX),
-                            "horizon.options.gyro_invert_x.about",
-                        ),
-                        option(
-                            Opt::PadGyro(GyroOpt::InvertY),
-                            "horizon.options.gyro_invert_y.about",
-                        ),
                     ],
                 ),
                 (
@@ -306,10 +257,6 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                             "How fast the stick moves the crosshair in inventories.",
                         ),
                         option(
-                            Opt::PadGyro(GyroOpt::Cursor),
-                            "horizon.options.gyro_cursor.about",
-                        ),
-                        option(
                             Opt::PadScrollSpeed,
                             "How fast the right stick scrolls a list.",
                         ),
@@ -328,6 +275,105 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                     ],
                 ),
             ],
+        ),
+        (
+            Page::Gyro,
+            vec![
+                (
+                    "horizon.options.group.gyro_aim",
+                    vec![
+                        option(
+                            Opt::PadGyro(GyroOpt::Mode),
+                            "horizon.options.gyro_mode.about",
+                        ),
+                        Setting {
+                            item: Item::Bind(gamepad::GYRO_BUTTON),
+                            text: BIND_TEXT,
+                        },
+                        option(
+                            Opt::PadGyro(GyroOpt::Sensitivity),
+                            "horizon.options.gyro_sensitivity.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Vertical),
+                            "horizon.options.gyro_vertical.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Space),
+                            "horizon.options.gyro_space.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Acceleration),
+                            "horizon.options.gyro_acceleration.about",
+                        ),
+                    ],
+                ),
+                (
+                    "horizon.options.group.gyro_steady",
+                    vec![
+                        option(
+                            Opt::PadGyro(GyroOpt::Smoothing),
+                            "horizon.options.gyro_smoothing.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::Tightening),
+                            "horizon.options.gyro_tightening.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::AutoCalibrate),
+                            "horizon.options.gyro_auto_calibrate.about",
+                        ),
+                    ],
+                ),
+                (
+                    "horizon.options.group.gyro_pause",
+                    vec![
+                        option(
+                            Opt::PadGyro(GyroOpt::StickPauses),
+                            "horizon.options.gyro_stick_pauses.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::TouchPauses),
+                            "horizon.options.gyro_touch_pauses.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::InvertX),
+                            "horizon.options.gyro_invert_x.about",
+                        ),
+                        option(
+                            Opt::PadGyro(GyroOpt::InvertY),
+                            "horizon.options.gyro_invert_y.about",
+                        ),
+                    ],
+                ),
+                (
+                    "horizon.options.group.flick_stick",
+                    vec![option(
+                        Opt::PadGyro(GyroOpt::FlickStick),
+                        "horizon.options.flick_stick.about",
+                    )],
+                ),
+            ],
+        ),
+        (
+            Page::GyroPointer,
+            vec![(
+                "horizon.options.group.gyro_pointer",
+                vec![
+                    option(
+                        Opt::PadGyro(GyroOpt::Cursor),
+                        "horizon.options.gyro_cursor.about",
+                    ),
+                    option(
+                        Opt::PadGyro(GyroOpt::CursorSmoothing),
+                        "horizon.options.gyro_cursor_smoothing.about",
+                    ),
+                    option(
+                        Opt::PadGyro(GyroOpt::CursorTightening),
+                        "horizon.options.gyro_cursor_tightening.about",
+                    ),
+                ],
+            )],
         ),
         (
             Page::Bindings,
@@ -412,6 +458,13 @@ pub struct Device {
     pub name: String,
     pub vendor: Option<u16>,
     pub product: Option<u16>,
+}
+
+impl Device {
+    /// Whether the game reads its gyro: a DualSense or a DualSense Edge.
+    pub fn has_gyro(&self) -> bool {
+        self.vendor == Some(0x054c) && matches!(self.product, Some(0x0ce6 | 0x0df2))
+    }
 }
 
 /// Who and what the screen is about; the game fills it in as it draws.
@@ -575,6 +628,13 @@ impl Screen for ControllerScreen {
         shell::stamp_of(&(&s.controller, &self.context))
     }
     fn sheets(&self, s: &Settings) -> Vec<Sheet<Page, Item>> {
+        // The gyro's pages are greyed on a controller whose gyro the game can't read; with none
+        // plugged in they can still be set up ahead.
+        let no_gyro = self.context.device.as_ref().is_some_and(|d| !d.has_gyro());
+        let blocked = |page: Page| {
+            (no_gyro && matches!(page, Page::Gyro | Page::GyroPointer))
+                .then(|| lang::get("horizon.options.gyro.unsupported"))
+        };
         let sheet = |(page, groups): (Page, Vec<(&'static str, Vec<Setting>)>)| Sheet {
             id: page,
             name: lang::get(page.name()),
@@ -585,7 +645,7 @@ impl Screen for ControllerScreen {
                     name,
                     rows: settings
                         .into_iter()
-                        .map(|setting| row(setting, s, &self.context))
+                        .map(|setting| row(setting, s, &self.context).blocked(blocked(page)))
                         .collect(),
                 })
                 .collect(),

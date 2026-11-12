@@ -827,6 +827,12 @@ impl PadSettings {
                 "gyroInvertX" => s.gyro.invert_x = flag(s.gyro.invert_x),
                 "gyroInvertY" => s.gyro.invert_y = flag(s.gyro.invert_y),
                 "gyroCursor" => s.gyro.cursor = bounded(s.gyro.cursor, 0.0, 20.0),
+                "gyroCursorSmoothing" => {
+                    s.gyro.cursor_smoothing = bounded(s.gyro.cursor_smoothing, 0.0, 50.0)
+                }
+                "gyroCursorTightening" => {
+                    s.gyro.cursor_tightening = bounded(s.gyro.cursor_tightening, 0.0, 50.0)
+                }
                 // Read after the loop, from the whole text.
                 "bindLayout" => {}
                 // The radial menu's pages (`radial::Pages::parse`).
@@ -960,7 +966,7 @@ impl PadSettings {
         ));
         let g = &self.gyro;
         text.push_str(&format!(
-            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroTouchPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\n",
+            "flickStick:{}\ngyroMode:{}\ngyroSpace:{}\ngyroSensitivity:{}\ngyroVertical:{}\ngyroSmoothing:{}\ngyroTightening:{}\ngyroAcceleration:{}\ngyroAutoCalibrate:{}\ngyroStickPauses:{}\ngyroTouchPauses:{}\ngyroInvertX:{}\ngyroInvertY:{}\ngyroCursor:{}\ngyroCursorSmoothing:{}\ngyroCursorTightening:{}\n",
             bool_text(self.flick_stick),
             g.mode.name(),
             g.space.name(),
@@ -975,6 +981,8 @@ impl PadSettings {
             bool_text(g.invert_x),
             bool_text(g.invert_y),
             g.cursor,
+            g.cursor_smoothing,
+            g.cursor_tightening,
         ));
         text.push_str(&format!("bindLayout:{}\n", self.bind_layout));
         for (key, value) in &self.extra {
@@ -2029,7 +2037,7 @@ bind_key.hotbar.2:north
     #[test]
     fn gyro_settings_round_trip_and_stay_in_range() {
         let s = PadSettings::parse(
-            "gyroMode:toggle\ngyroSpace:world\ngyroSensitivity:4.5\ngyroVertical:0.8\ngyroSmoothing:5\ngyroTightening:3\ngyroAcceleration:2\ngyroAutoCalibrate:false\ngyroStickPauses:true\ngyroTouchPauses:false\ngyroInvertY:true\nflickStick:true\nbind_pad.gyro:lb\n",
+            "gyroMode:toggle\ngyroSpace:world\ngyroSensitivity:4.5\ngyroVertical:0.8\ngyroSmoothing:5\ngyroTightening:3\ngyroAcceleration:2\ngyroAutoCalibrate:false\ngyroStickPauses:true\ngyroTouchPauses:false\ngyroInvertY:true\ngyroCursorSmoothing:12\nflickStick:true\nbind_pad.gyro:lb\n",
         );
         assert_eq!(s.gyro.mode, GyroMode::Toggle);
         assert_eq!(s.gyro.space, GyroSpace::World);

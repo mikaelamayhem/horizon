@@ -781,6 +781,8 @@ pub enum GyroOpt {
     InvertX,
     InvertY,
     Cursor,
+    CursorSmoothing,
+    CursorTightening,
     FlickStick,
 }
 

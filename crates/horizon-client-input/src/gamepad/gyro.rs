@@ -94,8 +94,13 @@ pub struct GyroSettings {
     pub invert_x: bool,
     pub invert_y: bool,
     /// In menus the gyro moves the pointer: screen widths for a whole turn of the pad
-    /// (JoyShockMapper's 2D unit; 8 is a screen for 45 degrees). 0: off.
+    /// (JoyShockMapper's 2D unit; 8 is a screen for 45 degrees). 0: off. It works whatever
+    /// the aiming mode: a player may point with the pad and aim with the stick.
     pub cursor: f32,
+    /// The pointer's own smoothing and tightening (°/s), heavier than aiming's: a pointer resting
+    /// on a slot holds still in a hand (the GyroWiki's 2D example).
+    pub cursor_smoothing: f32,
+    pub cursor_tightening: f32,
 }
 impl Default for GyroSettings {
     fn default() -> Self {
@@ -107,7 +112,8 @@ impl Default for GyroSettings {
             vertical: 0.75,
             // A light touch: a hand's tremor is steadied, a deliberate turn passes untouched.
             smoothing: 3.0,
-            tightening: 0.0,
+            // A little of each: a hand's tremor is steadied, a deliberate turn passes untouched.
+            tightening: 2.0,
             acceleration: 1.0,
             auto_calibrate: true,
             stick_pauses: false,
@@ -116,21 +122,19 @@ impl Default for GyroSettings {
             invert_y: false,
             // Off: a pointer that moves with the pad surprises a player who only wanted to aim.
             cursor: 0.0,
+            cursor_smoothing: 8.0,
+            cursor_tightening: 6.0,
         }
     }
 }
-
-/// Smoothing and tightening for the menu pointer, at least (the GyroWiki's 2D example): a pointer
-/// resting on a slot holds still in a hand.
-const CURSOR_STEADY: f32 = 5.0;
 
 impl GyroSettings {
     /// The settings the menu pointer turns by: one to one in degrees, steadied, no acceleration.
     pub fn for_cursor(&self) -> GyroSettings {
         GyroSettings {
             sensitivity: 1.0,
-            smoothing: self.smoothing.max(CURSOR_STEADY),
-            tightening: self.tightening.max(CURSOR_STEADY),
+            smoothing: self.cursor_smoothing,
+            tightening: self.cursor_tightening,
             acceleration: 1.0,
             ..*self
         }

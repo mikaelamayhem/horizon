@@ -25,6 +25,8 @@ impl GyroOpt {
             GyroOpt::InvertX => "horizon.options.gyro_invert_x",
             GyroOpt::InvertY => "horizon.options.gyro_invert_y",
             GyroOpt::Cursor => "horizon.options.gyro_cursor",
+            GyroOpt::CursorSmoothing => "horizon.options.gyro_cursor_smoothing",
+            GyroOpt::CursorTightening => "horizon.options.gyro_cursor_tightening",
             GyroOpt::FlickStick => "horizon.options.flick_stick",
         }
     }
@@ -34,7 +36,11 @@ impl GyroOpt {
         Some(match self {
             GyroOpt::Sensitivity => (0.1, 10.0, 99),
             GyroOpt::Vertical => (0.0, 2.0, 40),
-            GyroOpt::Smoothing | GyroOpt::Tightening | GyroOpt::Cursor => (0.0, 20.0, 20),
+            GyroOpt::Smoothing
+            | GyroOpt::Tightening
+            | GyroOpt::Cursor
+            | GyroOpt::CursorSmoothing
+            | GyroOpt::CursorTightening => (0.0, 20.0, 20),
             GyroOpt::Acceleration => (1.0, 4.0, 30),
             _ => return None,
         })
@@ -48,6 +54,8 @@ impl GyroOpt {
             GyroOpt::Smoothing => g.smoothing,
             GyroOpt::Tightening => g.tightening,
             GyroOpt::Cursor => g.cursor,
+            GyroOpt::CursorSmoothing => g.cursor_smoothing,
+            GyroOpt::CursorTightening => g.cursor_tightening,
             _ => g.acceleration,
         }
     }
@@ -114,6 +122,8 @@ impl Opt {
             GyroOpt::Smoothing => g.smoothing = snapped,
             GyroOpt::Tightening => g.tightening = snapped,
             GyroOpt::Cursor => g.cursor = snapped,
+            GyroOpt::CursorSmoothing => g.cursor_smoothing = snapped,
+            GyroOpt::CursorTightening => g.cursor_tightening = snapped,
             _ => g.acceleration = snapped,
         }
     }
@@ -128,8 +138,18 @@ impl Opt {
         let off = || generic(c, tr("options.off"));
         match slider {
             GyroOpt::Vertical => percent(c, v),
-            GyroOpt::Smoothing | GyroOpt::Tightening if v <= 0.0 => off(),
-            GyroOpt::Smoothing | GyroOpt::Tightening => generic(
+            GyroOpt::Smoothing
+            | GyroOpt::Tightening
+            | GyroOpt::CursorSmoothing
+            | GyroOpt::CursorTightening
+                if v <= 0.0 =>
+            {
+                off()
+            }
+            GyroOpt::Smoothing
+            | GyroOpt::Tightening
+            | GyroOpt::CursorSmoothing
+            | GyroOpt::CursorTightening => generic(
                 c,
                 Text::tr("horizon.options.degrees_per_second", &[&format!("{v:.0}")]),
             ),

@@ -838,9 +838,8 @@ impl Game<'_> {
             && !(settings.gyro.stick_pauses && stick_leans && !settings.flick_stick)
             && !(settings.gyro.touch_pauses && touching);
         let zoom = if scoping { 0.25 } else { 1.0 };
-        // In a menu the gyro moves the pointer whenever it can aim at all.
-        let cursor =
-            pointing && settings.gyro.mode != gamepad::GyroMode::Off && settings.gyro.cursor > 0.0;
+        // In a menu the gyro moves the pointer whenever the pointer is on, aiming or not.
+        let cursor = pointing && settings.gyro.cursor > 0.0;
         if !cursor {
             self.pad.gyro_cursor = (0.0, 0.0);
         }

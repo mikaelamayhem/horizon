@@ -745,7 +745,8 @@ impl Game<'_> {
     /// are read only then: with the gyro off the output thread sleeps as before.
     pub(super) fn pad_motion(&mut self) -> Option<gamepad::MotionSample> {
         let wanted = self.settings.controller.enabled
-            && self.settings.controller.gyro.mode != gamepad::GyroMode::Off;
+            && (self.settings.controller.gyro.mode != gamepad::GyroMode::Off
+                || self.settings.controller.gyro.cursor > 0.0);
         let changed = self.pad.devices.reading_motion != wanted;
         let output = self.pad_output()?;
         if changed {
