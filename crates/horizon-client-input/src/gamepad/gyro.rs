@@ -101,8 +101,10 @@ impl Default for GyroSettings {
             mode: GyroMode::Off,
             space: GyroSpace::Player,
             sensitivity: 2.0,
-            vertical: 1.0,
-            smoothing: 0.0,
+            // Most players aim less up and down than across (mikaela's playtest).
+            vertical: 0.75,
+            // A light touch: a hand's tremor is steadied, a deliberate turn passes untouched.
+            smoothing: 3.0,
             tightening: 0.0,
             acceleration: 1.0,
             auto_calibrate: true,
@@ -479,6 +481,8 @@ mod tests {
         GyroSettings {
             mode: GyroMode::On,
             sensitivity: 1.0,
+            vertical: 1.0,
+            smoothing: 0.0,
             auto_calibrate: false,
             ..GyroSettings::default()
         }

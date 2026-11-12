@@ -991,16 +991,16 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   (feature report 0x05) scales each axis. Bluetooth works where the DualSense output does (Linux, or
   `HORIZON_DUALSENSE_BT=1` elsewhere: see "DualSense output").
 - **Gyro Aiming** (`gyroMode`): Off; On (the Gyro Button, unbound by default, pauses it while held,
-  as one lifts a mouse); Hold Gyro Button; Toggle with Gyro Button. Bind the button under Bindings.
+  as one lifts a mouse); Hold Gyro Button; Toggle with Gyro Button. Bind the button right below the mode.
 - **Gyro Sensitivity** (`gyroSensitivity`, 0.1 to 10, default 2.0x): 1.0x turns the view as far as
-  the pad turns. **Gyro Vertical Sensitivity** (`gyroVertical`) scales up and down. A spyglass
+  the pad turns. **Gyro Vertical Sensitivity** (`gyroVertical`, default 75%) scales up and down. A spyglass
   slows it as it slows the stick.
 - **Gyro Space** (`gyroSpace`): Player (the default, the GyroWiki's recommendation: turning yaw and
   roll blended by gravity with a 1.41 slack, so the pad can be held at any angle), Local (the pad's
   own yaw) or World (the real vertical only). Gravity comes from the GyroWiki's sensor fusion.
 - **Gyro Acceleration** (`gyroAcceleration`, off at 1.0x): the sensitivity's multiple at 75 °/s
   and over. **Gyro Smoothing** and **Gyro Tightening** (`gyroSmoothing`, `gyroTightening`, °/s, off
-  at 0): soft tiered smoothing averages slower turns over 0.125 s without losing any of them;
+  at 0; smoothing defaults to a light 3 °/s): soft tiered smoothing averages slower turns over 0.125 s without losing any of them;
   tightening softens turns below the threshold, never a hard cutoff.
 - **Gyro Auto-Calibration** (`gyroAutoCalibrate`, on): a pad lying still (accelerometer steady
   within 0.008 g, gyro within 0.6 °/s of its mean, for 0.6 s) takes its gyro's mean as the offset.

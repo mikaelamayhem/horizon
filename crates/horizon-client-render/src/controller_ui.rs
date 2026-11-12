@@ -156,8 +156,10 @@ const BIND_TEXT: &str = "Press this row, then the button that should do it.";
 /// Every page's settings, in named groups of related rows. Settings another controller feature
 /// brings get a group here, or a new `Page` when they are a subject of their own.
 pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
+    // The Gyro Button sits with the gyro's settings, next to the mode it serves.
     let binds: Vec<Setting> = gamepad::ACTIONS
         .iter()
+        .filter(|(action, _)| *action != gamepad::GYRO_BUTTON)
         .map(|(action, _)| Setting {
             item: Item::Bind(action),
             text: BIND_TEXT,
@@ -209,6 +211,10 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                             Opt::PadGyro(GyroOpt::Mode),
                             "horizon.options.gyro_mode.about",
                         ),
+                        Setting {
+                            item: Item::Bind(gamepad::GYRO_BUTTON),
+                            text: BIND_TEXT,
+                        },
                         option(
                             Opt::PadGyro(GyroOpt::Sensitivity),
                             "horizon.options.gyro_sensitivity.about",
