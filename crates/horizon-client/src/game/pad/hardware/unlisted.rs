@@ -71,6 +71,11 @@ impl Watch {
         (state, change)
     }
 
+    /// It is reading an unlisted pad's controls.
+    pub(super) fn reading(&self) -> bool {
+        self.reading
+    }
+
     /// The pad is there (or gone for less than [`GRACE`]).
     pub(super) fn present(&self) -> bool {
         self.present
@@ -98,6 +103,10 @@ pub(super) struct Unlisted {
 }
 
 impl Unlisted {
+    pub(super) fn reading(&self) -> bool {
+        self.watch.reading()
+    }
+
     /// The output closed (controllers off, splitscreen took the pads): start again.
     pub(super) fn reset(&mut self) {
         *self = Unlisted::default();
@@ -179,10 +188,17 @@ fn state(input: &RawInput) -> PadState {
     ] {
         state.set(button, input.pressed(ds));
     }
+    add_touchpad(&mut state, input);
     state.left = input.stick(0);
     state.right = input.stick(1);
     state.triggers = [input.trigger(0), input.trigger(1)];
     state
+}
+
+/// The touchpad's click and touch, which gilrs doesn't report, from a DualSense's own report.
+pub(super) fn add_touchpad(state: &mut PadState, input: &RawInput) {
+    state.set(Button::TouchpadClick, input.pressed(DsButton::Touchpad));
+    state.set(Button::TouchpadTouch, input.touching);
 }
 
 /// Someone is using it: a button, or a stick or trigger past the takeover.
@@ -213,5 +229,11 @@ mod tests {
         };
         let s = state(&cross);
         assert!(touched(&s) && s.held(Button::South) && !s.held(Button::DPadUp));
+        // A finger on the touchpad is a button of its own, to bind.
+        let finger = state(&RawInput {
+            touching: true,
+            ..resting
+        });
+        assert!(finger.held(Button::TouchpadTouch) && !finger.held(Button::TouchpadClick));
     }
 }

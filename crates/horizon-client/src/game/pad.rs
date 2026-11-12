@@ -24,7 +24,7 @@ use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
 pub(super) const HELP: &[&str] = &[
-    "pad BUTTON down|up|tap         a virtual controller button (south east west north lb rb lt rt select start ls rs up down left right)",
+    "pad BUTTON down|up|tap         a virtual controller button (south east west north lb rb lt rt select start ls rs up down left right touchpad touch)",
     "pad stick left|right X Y       tilt a virtual stick (-1..1, up positive); 0 0 centres it",
     "pad trigger left|right VALUE   pull a virtual trigger (0..1)",
     "pad release                    centre and release the virtual controller (as an unplug: the radial menu cancels)",

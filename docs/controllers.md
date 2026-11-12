@@ -1019,6 +1019,10 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   with the pad and aim with the stick). JoyShockMapper's 2D unit: screen widths for a whole turn, so
   8.0x crosses the screen in 45 degrees. **Pointer Smoothing** and **Pointer Tightening**
   (`gyroCursorSmoothing`, `gyroCursorTightening`, default 8 and 6 °/s) are heavier than aiming's.
+- **Touchpad buttons.** A DualSense's touchpad click (`touchpad`) and a finger resting on it
+  (`touch`) can be bound like any button, e.g. the Gyro Button to the touch. gilrs doesn't report
+  them, so they come from the pad's own reports: always for a pad read over HID, and for a listed
+  one while something is bound to them (or the gyro reads). They show as text glyphs.
 - **Pages.** Gyro (aiming, steadiness, pausing, flick stick) and Gyro Pointer are pages of their
   own, greyed with a reason while the controller in use has no gyro the game reads (only a
   DualSense today); with none plugged in they can be set up ahead.

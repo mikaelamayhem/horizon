@@ -35,9 +35,13 @@ pub enum Button {
     DPadDown,
     DPadLeft,
     DPadRight,
+    /// A DualSense's touchpad pressed in (a click).
+    TouchpadClick,
+    /// A finger resting on a DualSense's touchpad.
+    TouchpadTouch,
 }
 impl Button {
-    pub const ALL: [Button; 16] = [
+    pub const ALL: [Button; 18] = [
         Button::South,
         Button::East,
         Button::West,
@@ -54,6 +58,8 @@ impl Button {
         Button::DPadDown,
         Button::DPadLeft,
         Button::DPadRight,
+        Button::TouchpadClick,
+        Button::TouchpadTouch,
     ];
     /// The name in `horizon-controller.txt` and `horizon-ctl pad`.
     pub fn name(self) -> &'static str {
@@ -74,6 +80,8 @@ impl Button {
             Button::DPadDown => "down",
             Button::DPadLeft => "left",
             Button::DPadRight => "right",
+            Button::TouchpadClick => "touchpad",
+            Button::TouchpadTouch => "touch",
         }
     }
     pub fn parse(name: &str) -> Option<Self> {

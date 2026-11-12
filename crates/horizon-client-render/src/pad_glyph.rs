@@ -197,14 +197,15 @@ fn printed(button: Button, style: GlyphStyle) -> &'static str {
     match style {
         GlyphStyle::PlayStation => [
             "×", "○", "□", "△", "L1", "R1", "L2", "R2", "Create", "Options", "L3", "R3", "↑", "↓",
-            "←", "→",
+            "←", "→", "Touchpad", "Touch",
         ][i],
         GlyphStyle::Nintendo => [
             "B", "A", "Y", "X", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS", "↑", "↓", "←", "→",
+            "Touchpad", "Touch",
         ][i],
         GlyphStyle::Xbox | GlyphStyle::Auto => [
             "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS", "↑", "↓", "←",
-            "→",
+            "→", "Touchpad", "Touch",
         ][i],
     }
 }
@@ -430,7 +431,11 @@ mod tests {
             (GlyphStyle::PlayStation, "psx_"),
             (GlyphStyle::Nintendo, "nx_"),
         ] {
-            for button in Button::ALL {
+            // The touchpad has no picture: it shows as text.
+            for button in Button::ALL
+                .into_iter()
+                .filter(|b| !matches!(b, Button::TouchpadClick | Button::TouchpadTouch))
+            {
                 let name = file(button, style).unwrap_or_else(|| panic!("{button:?}"));
                 assert!(name.starts_with(prefix), "{name}");
             }

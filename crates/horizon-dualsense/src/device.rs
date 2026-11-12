@@ -9,9 +9,7 @@ use crate::{DEFAULT_LIGHTBAR, Output, PLAYER_1, Vibration, is_dualsense};
 use crate::{TRIGGER_OFF, TriggerEffect};
 #[cfg(not(target_os = "ios"))]
 use hidapi::{BusType, HidApi, HidDevice, HidResult};
-#[cfg(not(target_os = "ios"))]
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 #[cfg(not(target_os = "ios"))]
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -169,6 +167,8 @@ pub struct Link {
     motion: Arc<Mutex<MotionSum>>,
     /// The latest buttons and sticks, while they are asked for.
     input: Arc<Mutex<Option<RawInput>>>,
+    /// They were last asked for (`read_input`), so asking again sends nothing.
+    input_on: AtomicBool,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -210,6 +210,7 @@ impl Link {
             open,
             motion,
             input,
+            input_on: AtomicBool::new(false),
             thread,
         }
     }
@@ -222,6 +223,7 @@ impl Link {
             open: Arc::new(AtomicU8::new(0)),
             motion: Arc::default(),
             input: Arc::default(),
+            input_on: AtomicBool::new(false),
             thread: None,
         }
     }
@@ -265,7 +267,9 @@ impl Link {
     /// Read the buttons and sticks (no other API lists the pad) or stop. As with the motion,
     /// the pad sends its reports either way.
     pub fn read_input(&self, on: bool) {
-        self.send(Message::Input(on));
+        if self.input_on.swap(on, Ordering::Relaxed) != on {
+            self.send(Message::Input(on));
+        }
     }
 
     /// The buttons and sticks of the latest report; `None` before one came in or while the pad

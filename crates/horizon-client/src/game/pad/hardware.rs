@@ -91,9 +91,11 @@ impl Devices {
     }
 }
 
-fn gilrs_button(button: Button) -> gilrs::Button {
+/// The gilrs button for one of ours; `None` for the touchpad, which gilrs doesn't report (a
+/// DualSense's is read from its own reports, `touchpad_of`).
+fn gilrs_button(button: Button) -> Option<gilrs::Button> {
     use gilrs::Button as G;
-    match button {
+    Some(match button {
         Button::South => G::South,
         Button::East => G::East,
         Button::West => G::West,
@@ -110,7 +112,8 @@ fn gilrs_button(button: Button) -> gilrs::Button {
         Button::DPadDown => G::DPadDown,
         Button::DPadLeft => G::DPadLeft,
         Button::DPadRight => G::DPadRight,
-    }
+        Button::TouchpadClick | Button::TouchpadTouch => return None,
+    })
 }
 
 fn is_dualsense(pad: &gilrs::Gamepad) -> bool {
@@ -310,7 +313,14 @@ impl Pads {
         self.device = Some(device_of(&pad));
         self.style = GlyphStyle::of_device(pad.vendor_id(), pad.product_id());
         self.devices.dualsense = is_dualsense(&pad);
-        state_of(&pad)
+        let mut state = state_of(&pad);
+        // A DualSense's touchpad, which gilrs doesn't report, from its own reports.
+        if self.devices.dualsense
+            && let Some(input) = self.devices.output.as_ref().and_then(|o| o.input())
+        {
+            unlisted::add_touchpad(&mut state, &input);
+        }
+        state
     }
 }
 
@@ -364,9 +374,10 @@ fn state_of(pad: &gilrs::Gamepad) -> PadState {
     let mut state = PadState::default();
     let crossed = face_buttons::crossed(pad);
     for button in Button::ALL {
-        if !matches!(button, Button::LeftTrigger | Button::RightTrigger) {
-            let named = face_buttons::named(gilrs_button(button), crossed);
-            state.set(button, pad.is_pressed(named));
+        if !matches!(button, Button::LeftTrigger | Button::RightTrigger)
+            && let Some(ours) = gilrs_button(button)
+        {
+            state.set(button, pad.is_pressed(face_buttons::named(ours, crossed)));
         }
     }
     [state.left, state.right] = sticks_of(pad);
@@ -559,10 +570,9 @@ impl PadRouter {
             match event {
                 gilrs::EventType::ButtonPressed(pressed, _) => {
                     let crossed = face_buttons::crossed(&gilrs.gamepad(id));
-                    if let Some(button) = Button::ALL
-                        .into_iter()
-                        .find(|&b| face_buttons::named(gilrs_button(b), crossed) == pressed)
-                    {
+                    if let Some(button) = Button::ALL.into_iter().find(|&b| {
+                        gilrs_button(b).map(|g| face_buttons::named(g, crossed)) == Some(pressed)
+                    }) {
                         events.push(PadEvent::Press(pad, button));
                     }
                 }
@@ -707,6 +717,18 @@ impl Game<'_> {
         {
             self.pad.devices.output = Some(horizon_dualsense::Link::start());
             self.pad.devices.reading_motion = false;
+        }
+        // A listed DualSense's touchpad is read only while something is bound to it (the gyro
+        // reads it anyway); an unlisted one's controls are always read.
+        if let Some(output) = &self.pad.devices.output
+            && !self.pad.devices.unlisted.reading()
+        {
+            let pad = &self.settings.controller;
+            output.read_input(
+                [Button::TouchpadClick, Button::TouchpadTouch]
+                    .into_iter()
+                    .any(|b| !pad.actions_of(b).is_empty()),
+            );
         }
         self.pad_haptics();
         self.pad_show();
