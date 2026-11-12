@@ -1,5 +1,6 @@
 //! The pad over hidapi, and the thread that writes to it: writes block (a Bluetooth report can
 //! take milliseconds), so the game only hands over what the pad should do.
+use crate::input::RawInput;
 #[cfg(not(target_os = "ios"))]
 use crate::motion::{self, Calibration};
 use crate::motion::{Motion, MotionSum};
@@ -51,16 +52,17 @@ pub fn bluetooth_allowed() -> bool {
 impl DualSense {
     /// The first DualSense hidapi lists, USB before Bluetooth (as SDL); `None` when there is
     /// none, an error when it can't be opened (Linux without access to its hidraw node).
-    pub fn open(api: &HidApi) -> Option<HidResult<Self>> {
+    /// `bluetooth`: whether a pad on Bluetooth may be opened ([`bluetooth_allowed`]).
+    pub fn open(api: &HidApi, bluetooth: bool) -> Option<HidResult<Self>> {
         static SKIPPED: AtomicBool = AtomicBool::new(false);
-        let bluetooth = |d: &&hidapi::DeviceInfo| matches!(d.bus_type(), BusType::Bluetooth);
+        let on_bluetooth = |d: &&hidapi::DeviceInfo| matches!(d.bus_type(), BusType::Bluetooth);
         let pads = api
             .device_list()
             .filter(|d| is_dualsense(d.vendor_id(), d.product_id()));
-        let (wireless, wired): (Vec<_>, Vec<_>) = pads.partition(bluetooth);
+        let (wireless, wired): (Vec<_>, Vec<_>) = pads.partition(on_bluetooth);
         let info = match wired.first() {
             Some(info) => info,
-            None if bluetooth_allowed() => wireless.first()?,
+            None if bluetooth => wireless.first()?,
             None => {
                 if !wireless.is_empty() && !SKIPPED.swap(true, Ordering::Relaxed) {
                     log::info!("Horizon: no DualSense output over Bluetooth on this system");
@@ -153,6 +155,8 @@ enum Message {
     Scan,
     /// Read the motion sensors from now on, or stop.
     Motion(bool),
+    /// Read the buttons and sticks from now on, or stop.
+    Input(bool),
 }
 
 /// The output thread. Dropping it frees the triggers and stops the motors before it ends; on
@@ -163,6 +167,8 @@ pub struct Link {
     open: Arc<AtomicU8>,
     /// The motion read since the game last took it, while it is asked for.
     motion: Arc<Mutex<MotionSum>>,
+    /// The latest buttons and sticks, while they are asked for.
+    input: Arc<Mutex<Option<RawInput>>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -170,20 +176,40 @@ impl Link {
     /// Start the thread and look for a DualSense.
     #[cfg(not(target_os = "ios"))]
     pub fn start() -> Link {
+        Link::start_with(bluetooth_allowed())
+    }
+
+    /// Start the thread for a pad the system's controller API doesn't list, so that the game
+    /// reads its buttons here: on Bluetooth too, as nothing else reads its simple report.
+    #[cfg(not(target_os = "ios"))]
+    pub fn start_unlisted() -> Link {
+        Link::start_with(true)
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    fn start_with(bluetooth: bool) -> Link {
         let (tx, rx) = mpsc::channel();
         let open = Arc::new(AtomicU8::new(0));
         let motion = Arc::new(Mutex::new(MotionSum::default()));
+        let input = Arc::new(Mutex::new(None));
         let shown = open.clone();
         let read = motion.clone();
+        let pressed = input.clone();
         let thread = std::thread::Builder::new()
             .name("dualsense".into())
-            .spawn(move || Writer::new(shown, read).run(rx))
+            .spawn(move || {
+                let mut writer = Writer::new(shown, read);
+                writer.input = pressed;
+                writer.bluetooth = bluetooth;
+                writer.run(rx)
+            })
             .map_err(|e| log::warn!("Horizon: DualSense output: {e}"))
             .ok();
         Link {
             tx: Some(tx),
             open,
             motion,
+            input,
             thread,
         }
     }
@@ -195,6 +221,7 @@ impl Link {
             tx: None,
             open: Arc::new(AtomicU8::new(0)),
             motion: Arc::default(),
+            input: Arc::default(),
             thread: None,
         }
     }
@@ -233,6 +260,18 @@ impl Link {
     /// The motion since the last call; `None` when no report came in.
     pub fn take_motion(&self) -> Option<Motion> {
         self.motion.lock().ok()?.take()
+    }
+
+    /// Read the buttons and sticks (no other API lists the pad) or stop. As with the motion,
+    /// the pad sends its reports either way.
+    pub fn read_input(&self, on: bool) {
+        self.send(Message::Input(on));
+    }
+
+    /// The buttons and sticks of the latest report; `None` before one came in or while the pad
+    /// is gone.
+    pub fn input(&self) -> Option<RawInput> {
+        *self.input.lock().ok()?
     }
 
     fn send(&self, message: Message) {
@@ -277,6 +316,11 @@ struct Writer {
     reading: bool,
     motion: Arc<Mutex<MotionSum>>,
     calibration: Calibration,
+    /// The game wants the buttons and sticks: the thread reads every report.
+    reading_input: bool,
+    input: Arc<Mutex<Option<RawInput>>>,
+    /// A pad on Bluetooth may be opened.
+    bluetooth: bool,
 }
 
 /// While the motion sensors are read, the longest a read waits for a report before the thread
@@ -341,6 +385,9 @@ impl Writer {
             reading: false,
             motion,
             calibration: Calibration::default(),
+            reading_input: false,
+            input: Arc::default(),
+            bluetooth: bluetooth_allowed(),
             api: None,
             pad: None,
             open,
@@ -369,7 +416,7 @@ impl Writer {
             .into_iter()
             .flatten()
             .min();
-            let message = if self.reading && self.pad.is_some() {
+            let message = if (self.reading || self.reading_input) && self.pad.is_some() {
                 // Messages first, then the pad's next report (or the next wake, if sooner).
                 match rx.try_recv() {
                     Ok(message) => Ok(message),
@@ -416,6 +463,11 @@ impl Writer {
                     }
                     continue;
                 }
+                Ok(Message::Input(on)) => {
+                    self.reading_input = on;
+                    self.clear_input();
+                    continue;
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -444,7 +496,7 @@ impl Writer {
             None => HidApi::new().map(|api| &*self.api.insert(api)),
         };
         let found = match api {
-            Ok(api) => DualSense::open(api),
+            Ok(api) => DualSense::open(api, self.bluetooth),
             Err(e) => {
                 log::warn!("Horizon: DualSense output: {e}");
                 None
@@ -520,6 +572,12 @@ impl Writer {
                     clock = bluetooth_clock(report).or(clock);
                     if let (Some(sum), Some(raw)) = (sum.as_mut(), motion::parse(report)) {
                         sum.push(raw, &self.calibration);
+                    }
+                    if self.reading_input
+                        && let Some(raw) = crate::input::parse(report)
+                        && let Ok(mut input) = self.input.lock()
+                    {
+                        *input = Some(raw);
                     }
                 }
                 Err(e) => return Err(e.to_string()),
@@ -615,6 +673,12 @@ impl Writer {
         }
     }
 
+    fn clear_input(&mut self) {
+        if let Ok(mut input) = self.input.lock() {
+            *input = None;
+        }
+    }
+
     /// Write a report, dropping the pad on any hidapi error: a handle that failed is never
     /// written through again.
     fn write(&mut self, out: &Output) -> bool {
@@ -643,6 +707,7 @@ impl Writer {
         if let Ok(mut motion) = self.motion.lock() {
             motion.restart();
         }
+        self.clear_input();
         self.lights = Lights::Ready;
         self.open.store(0, Ordering::Relaxed);
         self.scans_left = SCAN_TRIES;

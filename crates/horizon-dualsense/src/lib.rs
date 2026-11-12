@@ -13,6 +13,7 @@ pub mod haptics;
 #[cfg(target_os = "ios")]
 #[path = "haptics_stub.rs"]
 pub mod haptics;
+pub mod input;
 pub mod motion;
 pub mod trigger;
 

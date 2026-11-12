@@ -990,6 +990,12 @@ JoyShockMapper. All of it is in Controller Settings > General, under Look and Gy
   sensor clock, so the turn is exact however many reports arrive per frame. The factory calibration
   (feature report 0x05) scales each axis. Bluetooth works where the DualSense output does (Linux, or
   `HORIZON_DUALSENSE_BT=1` elsewhere: see "DualSense output").
+- **A DualSense gilrs doesn't list.** On some Windows machines joy.cpl shows the pad but
+  Windows.Gaming.Input doesn't, so gilrs never sees it ("No controller"). On Windows, the game then
+  reads that pad's buttons, sticks and triggers from the same reports (`horizon-dualsense`'s
+  `input.rs`, the game's `pad/hardware/unlisted.rs`), over USB or Bluetooth, and looks for one every
+  3 seconds while none is open. `HORIZON_DUALSENSE_HID=1` turns this on elsewhere, `0` off.
+  Splitscreen doesn't route such a pad yet.
 - **Gyro Aiming** (`gyroMode`): Off; On (the Gyro Button, unbound by default, pauses it while held,
   as one lifts a mouse); Hold Gyro Button; Toggle with Gyro Button. Bind the button right below the mode.
 - **Gyro Sensitivity** (`gyroSensitivity`, 0.1 to 10, default 2.0x): 1.0x turns the view as far as

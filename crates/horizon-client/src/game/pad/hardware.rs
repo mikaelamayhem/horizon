@@ -15,6 +15,7 @@ mod hid_layout;
 mod sdl_row;
 mod trigger_effects;
 mod triggers;
+mod unlisted;
 
 /// The controllers gilrs sees and the DualSense's output.
 #[derive(Default)]
@@ -39,6 +40,8 @@ pub(super) struct Devices {
     shown: Option<horizon_dualsense::device::State>,
     /// The output was asked to read the motion sensors.
     reading_motion: bool,
+    /// A DualSense gilrs doesn't list, read through `output`.
+    unlisted: unlisted::Unlisted,
     /// While `PadRouter` has the reader and isn't lending it: what `pad status` lists.
     routed: Option<Vec<Value>>,
     /// While `PadRouter` has the reader and isn't lending it: vibrations it hasn't played yet.
@@ -215,6 +218,7 @@ impl Pads {
             self.devices.dualsense = false;
             self.devices.output = None;
             self.devices.reading_motion = false;
+            self.devices.unlisted.reset();
             self.devices.shown = None;
         }
     }
@@ -222,6 +226,8 @@ impl Pads {
     /// Drain gilrs' events and read the active pad (opening gilrs the first time).
     pub(super) fn read(&mut self) -> PadState {
         self.start();
+        let was_unlisted = self.devices.unlisted.active;
+        let unlisted = self.read_unlisted();
         let Some(gilrs) = self.devices.gilrs.as_mut() else {
             return PadState::default();
         };
@@ -271,11 +277,20 @@ impl Pads {
                 _ => {}
             }
         }
+        if self.devices.active.is_some() && self.devices.active != active {
+            self.devices.unlisted.active = false;
+        }
         // Another pad, or none: its A going away isn't a release.
-        if self.devices.active != active {
+        if self.devices.active != active || self.devices.unlisted.active != was_unlisted {
             self.menu.armed = None;
             self.radial.cancel();
             self.menu.stop_craft();
+        }
+        if let (true, Some(state)) = (self.devices.unlisted.active, unlisted) {
+            self.device = Some(unlisted::device());
+            self.style = GlyphStyle::PlayStation;
+            self.devices.dualsense = true;
+            return state;
         }
         let Some(pad) = self
             .devices
@@ -283,8 +298,13 @@ impl Pads {
             .and_then(|id| gilrs.connected_gamepad(id))
         else {
             // Before any pad is touched (the virtual pad playing), a DualSense still shows it.
-            self.devices.dualsense = gilrs.gamepads().any(|(_, pad)| is_dualsense(&pad));
-            self.device = gilrs.gamepads().next().map(|(_, pad)| device_of(&pad));
+            self.devices.dualsense =
+                unlisted.is_some() || gilrs.gamepads().any(|(_, pad)| is_dualsense(&pad));
+            self.device = gilrs
+                .gamepads()
+                .next()
+                .map(|(_, pad)| device_of(&pad))
+                .or_else(|| unlisted.map(|_| unlisted::device()));
             return PadState::default();
         };
         self.device = Some(device_of(&pad));
@@ -437,6 +457,7 @@ impl PadRouter {
             pads.devices.rumbles.clear();
             pads.devices.output = None;
             pads.devices.reading_motion = false;
+            pads.devices.unlisted.reset();
             pads.devices.shown = None;
         }
         pads.devices.dualsense = self
@@ -563,6 +584,7 @@ impl Game<'_> {
     pub(super) fn pad_output_off(&mut self) {
         self.pad.devices.output = None;
         self.pad.devices.reading_motion = false;
+        self.pad.devices.unlisted.reset();
         self.pad.devices.shown = None;
     }
 
@@ -744,6 +766,7 @@ impl Game<'_> {
         self.pad.devices.haptics = None;
         self.pad.devices.output = None;
         self.pad.devices.reading_motion = false;
+        self.pad.devices.unlisted.reset();
     }
 
     /// Play a vibration on the active pad: a DualSense through its own report, else gilrs' force

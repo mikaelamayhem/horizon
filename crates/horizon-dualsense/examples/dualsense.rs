@@ -21,7 +21,7 @@ const POWER: usize = 0x34;
 fn main() {
     let what = std::env::args().nth(1).unwrap_or_else(|| "all".into());
     let api = hidapi::HidApi::new().expect("hidapi");
-    let mut pad = match DualSense::open(&api) {
+    let mut pad = match DualSense::open(&api, horizon_dualsense::device::bluetooth_allowed()) {
         Some(Ok(pad)) => pad,
         Some(Err(e)) => panic!("the DualSense is there but can't be opened: {e}"),
         None => panic!("no DualSense found"),
