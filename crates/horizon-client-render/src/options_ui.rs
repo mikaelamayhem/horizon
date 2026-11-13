@@ -316,6 +316,7 @@ impl Opt {
             Opt::PadNintendoButtons => "horizon.options.nintendo_buttons",
             Opt::PadKeyboard => "horizon.options.on_screen_keyboard",
             Opt::PadGameplayGuide => "horizon.options.gameplay_guide",
+            Opt::PadGuidePlace => "horizon.options.guide_place",
             Opt::PadRadialMode => "horizon.options.radial_mode",
             Opt::PadRadialStick => "horizon.options.radial_stick",
             Opt::ModelPart(i) => [
@@ -849,6 +850,10 @@ impl Opt {
                 gamepad::GuideDetail::Basic => "horizon.options.gameplay_guide.basic",
                 gamepad::GuideDetail::Off => "horizon.options.gameplay_guide.off",
             }),
+            Opt::PadGuidePlace => tr(match s.controller.guide_place {
+                gamepad::GuidePlace::Hotbar => "horizon.options.guide_place.hotbar",
+                gamepad::GuidePlace::Corners => "horizon.options.guide_place.corners",
+            }),
             Opt::PadInvertX => on_off(s.controller.invert_x),
             Opt::PadInvertY => on_off(s.controller.invert_y),
             Opt::PadCraftOnServers => on_off(s.controller.craft_on_servers),
@@ -1171,35 +1176,22 @@ impl Opt {
                 s.controller.nintendo_letters = !s.controller.nintendo_letters
             }
             Opt::PadLightbar => {
-                let all = gamepad::Lightbar::ALL;
-                let i = all
-                    .iter()
-                    .position(|l| *l == s.controller.lightbar)
-                    .unwrap_or(0) as u8;
-                s.controller.lightbar = all[usize::from(next(i, 3))];
+                s.controller.lightbar = step(&gamepad::Lightbar::ALL, s.controller.lightbar, back)
             }
             Opt::PadGlyphs => {
-                let i = GlyphStyle::ALL
-                    .iter()
-                    .position(|g| *g == s.controller.glyphs)
-                    .unwrap_or(0) as u8;
-                s.controller.glyphs = GlyphStyle::ALL[usize::from(next(i, 4))];
+                s.controller.glyphs = step(&GlyphStyle::ALL, s.controller.glyphs, back)
             }
             Opt::PadGameplayGuide => {
-                let all = gamepad::GuideDetail::ALL;
-                let i = all
-                    .iter()
-                    .position(|d| *d == s.controller.guide_detail)
-                    .unwrap_or(0) as u8;
-                s.controller.guide_detail = all[usize::from(next(i, 3))];
+                let all = &gamepad::GuideDetail::ALL;
+                s.controller.guide_detail = step(all, s.controller.guide_detail, back)
+            }
+            Opt::PadGuidePlace => {
+                let all = &gamepad::GuidePlace::ALL;
+                s.controller.guide_place = step(all, s.controller.guide_place, back)
             }
             Opt::PadKeyboard => {
-                let all = gamepad::TextKeyboard::ALL;
-                let i = all
-                    .iter()
-                    .position(|k| *k == s.controller.keyboard)
-                    .unwrap_or(0) as u8;
-                s.controller.keyboard = all[usize::from(next(i, 3))];
+                let all = &gamepad::TextKeyboard::ALL;
+                s.controller.keyboard = step(all, s.controller.keyboard, back)
             }
             Opt::PadRadialMode | Opt::PadRadialStick => self.radial_step(s, back),
             _ => {}
@@ -1208,6 +1200,12 @@ impl Opt {
             s.graphics_preset = "custom".into();
         }
     }
+}
+
+/// The choice after (or before, going `back`) `now` among `all`, round the ends.
+fn step<T: Copy + PartialEq>(all: &[T], now: T, back: bool) -> T {
+    let i = all.iter().position(|v| *v == now).unwrap_or(0);
+    all[(i + if back { all.len() - 1 } else { 1 }) % all.len()]
 }
 
 /// `Options.preferredGraphicsBackend`'s tooltip: the restart note once the choice differs from

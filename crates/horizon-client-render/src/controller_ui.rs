@@ -79,6 +79,12 @@ fn choice_description(opt: Opt, pad: &PadSettings) -> Option<&'static str> {
             }
             gamepad::GuideDetail::Off => "Doesn't show what your buttons do.",
         },
+        Opt::PadGuidePlace => match pad.guide_place {
+            gamepad::GuidePlace::Hotbar => {
+                "Shows the buttons on either side of the hotbar, or in the top corners when there's no room."
+            }
+            gamepad::GuidePlace::Corners => "Shows the buttons in the top corners of the screen.",
+        },
         Opt::PadGlyphs => match pad.glyphs {
             GlyphStyle::Auto => "Shows the buttons of the controller you're using.",
             GlyphStyle::Xbox => "Always shows Xbox buttons.",
@@ -206,6 +212,10 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
                         option(
                             Opt::PadGameplayGuide,
                             "Show the buttons for what you can do, while you play with a controller.",
+                        ),
+                        option(
+                            Opt::PadGuidePlace,
+                            "Where the gameplay guide shows on the screen.",
                         ),
                         option(
                             Opt::PadCraftOnServers,
@@ -1015,6 +1025,7 @@ mod tests {
         let context = Context::default();
         for (opt, choices) in [
             (Opt::PadGameplayGuide, 3),
+            (Opt::PadGuidePlace, 2),
             (Opt::PadGlyphs, 4),
             (Opt::PadNintendoButtons, 2),
             (Opt::PadKeyboard, 3),
@@ -1050,6 +1061,7 @@ mod tests {
             let mut settings = Settings::default();
             for opt in [
                 Opt::PadGameplayGuide,
+                Opt::PadGuidePlace,
                 Opt::PadGlyphs,
                 Opt::PadNintendoButtons,
                 Opt::PadKeyboard,

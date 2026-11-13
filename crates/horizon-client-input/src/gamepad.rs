@@ -594,6 +594,36 @@ impl GuideDetail {
     }
 }
 
+/// Where the gameplay guide's rows show while a pad plays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GuidePlace {
+    /// Either side of the hotbar, rising from the bottom of the view; the top corners where the
+    /// view is too narrow for that.
+    #[default]
+    Hotbar,
+    /// The view's top corners.
+    Corners,
+}
+impl GuidePlace {
+    pub const ALL: [GuidePlace; 2] = [GuidePlace::Hotbar, GuidePlace::Corners];
+
+    /// The name in `horizon-controller.txt`.
+    pub fn name(self) -> &'static str {
+        match self {
+            GuidePlace::Hotbar => "hotbar",
+            GuidePlace::Corners => "corners",
+        }
+    }
+
+    /// Reads a name; anything else is beside the hotbar.
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "corners" => GuidePlace::Corners,
+            _ => GuidePlace::Hotbar,
+        }
+    }
+}
+
 /// The on-screen keyboard A opens on a text field in focus mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum TextKeyboard {
@@ -668,6 +698,8 @@ pub struct PadSettings {
     pub keyboard: TextKeyboard,
     /// The gameplay guide: what the buttons do now, in the HUD's corners while the pad plays.
     pub guide_detail: GuideDetail,
+    /// Where the gameplay guide shows (`gameplayGuidePlace`).
+    pub guide_place: GuidePlace,
     /// Menu pointer multiplier, scroll lines/second, and repeat times in seconds.
     pub pointer_speed: f32,
     pub scroll_speed: f32,
@@ -711,6 +743,7 @@ impl Default for PadSettings {
             nintendo_letters: cfg!(target_os = "horizon"),
             keyboard: TextKeyboard::Auto,
             guide_detail: GuideDetail::Full,
+            guide_place: GuidePlace::Hotbar,
             pointer_speed: 1.0,
             scroll_speed: 12.0,
             repeat_delay: 0.35,
@@ -793,6 +826,7 @@ impl PadSettings {
                 "nintendoLetters" => s.nintendo_letters = flag(s.nintendo_letters),
                 "keyboard" => s.keyboard = TextKeyboard::parse(value),
                 "gameplayGuide" => s.guide_detail = GuideDetail::parse(value),
+                "gameplayGuidePlace" => s.guide_place = GuidePlace::parse(value),
                 "pointerSpeed" => s.pointer_speed = bounded(s.pointer_speed, 0.25, 3.0),
                 "scrollSpeed" => s.scroll_speed = bounded(s.scroll_speed, 1.0, 36.0),
                 "repeatDelay" => s.repeat_delay = bounded(s.repeat_delay, 0.1, 1.0),
@@ -910,9 +944,10 @@ impl PadSettings {
             self.keyboard.name(),
         );
         text.push_str(&format!(
-            "craftOnServers:{}\ngameplayGuide:{}\npointerSpeed:{}\nscrollSpeed:{}\nrepeatDelay:{}\nrepeatInterval:{}\n",
+            "craftOnServers:{}\ngameplayGuide:{}\ngameplayGuidePlace:{}\npointerSpeed:{}\nscrollSpeed:{}\nrepeatDelay:{}\nrepeatInterval:{}\n",
             bool_text(self.craft_on_servers),
             self.guide_detail.name(),
+            self.guide_place.name(),
             self.pointer_speed, self.scroll_speed, self.repeat_delay, self.repeat_interval,
         ));
         for (action, button) in &self.bindings {
