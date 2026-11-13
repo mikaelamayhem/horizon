@@ -679,7 +679,7 @@ more than one action is marked "[ ]" in yellow, as vanilla marks conflicts, and 
 it does; an unbound action says so in the strip. A changed binding has a reset at its row's end (Right
 reaches it), and Reset All puts every action back.
 
-General's Play group has the **Gameplay Guide** setting (Full, Basic or Off) and **Trigger Threshold**, how far a trigger is pulled before it counts as pressed:
+General's Play group has the **Gameplay Guide** setting (Full, Basic or Off), **Guide Position** (Beside Hotbar or Top Corners) and **Trigger Threshold**, how far a trigger is pulled before it counts as pressed:
 0.1 to 0.9, by default 0.4, which also places a DualSense's catch (see "Adaptive triggers"). The screen
 names the player whose profile it edits and the controller the game sees; Device also shows its vendor and
 product ids, the detected glyph family and the override, as lines the focus reaches so the strip can say
@@ -705,6 +705,7 @@ glyphs:auto
 bind_key.jump:south
 craftOnServers:false
 gameplayGuide:full
+gameplayGuidePlace:hotbar
 bind_pad.hotbarNext:rb
 bindLayout:2
 ```
@@ -727,9 +728,12 @@ every pad: for a pad in one window and the keyboard in another, turn Controllers
 
 ## Gameplay guide
 
-While the pad plays, the HUD's top corners say what its buttons do now: break, use and pick block
-at the top right when there is something to do them to, movement and the player's own actions at
-the top left. The rows follow the bindings, the game mode, what the crosshair is on, the held
+While the pad plays, rows beside the hotbar say what its buttons do now: break, use and pick block
+right of it when there is something to do them to, movement and the player's own actions left of
+it. They rise from the bottom of the view, glyphs against the hotbar (past the off hand's slot and
+the attack indicator), and keep to the view's lower half. **Guide Position** (General's Play group,
+`gameplayGuidePlace`) can put them in the top corners instead, where they were first, and a view
+too narrow to leave 48 GUI px on each side of the hotbar uses the corners anyway. The rows follow the bindings, the game mode, what the crosshair is on, the held
 items, riding, swimming and flying, and an item in use; an action that would do nothing, or has no
 button, has no row. The mouse or keyboard taking over hides them, as do a menu, F1, F3 and the
 Gameplay Guide option. They read what a click would do from the client's own answers

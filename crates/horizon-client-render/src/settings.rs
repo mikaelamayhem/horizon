@@ -874,6 +874,8 @@ pub enum Opt {
     PadNintendoButtons,
     PadKeyboard,
     PadGameplayGuide,
+    /// Where the gameplay guide shows (`PadSettings::guide_place`).
+    PadGuidePlace,
     /// The radial menu's opener held or pressed once (`PadSettings::radial_mode`).
     PadRadialMode,
     /// The stick the radial menu selects with (`PadSettings::radial_stick`).

@@ -1,7 +1,7 @@
-//! The gameplay guide: what the buttons do right now, in the corners of the HUD while a pad plays
-//! and of an inventory it drives (Horizon's; vanilla has no gamepad input). The game reads the facts
-//! from its own hit results and capabilities (`game/pad/guide.rs`); this turns them into rows, and
-//! places the rows around what was drawn.
+//! The gameplay guide: what the buttons do right now while a pad plays, beside the hotbar or in
+//! the HUD's top corners, and in the bottom corners of an inventory it drives (Horizon's; vanilla
+//! has no gamepad input). The game reads the facts from its own hit results and capabilities
+//! (`game/pad/guide.rs`); this turns them into rows, and places the rows around what was drawn.
 use crate::gamepad::{Button, GlyphOf, GuideDetail, MenuJob, PadSettings, Rect};
 
 /// What a use does, by what takes it.
@@ -430,7 +430,7 @@ pub fn place_column(
     room: f32,
     taken: &mut Vec<Rect>,
 ) -> Vec<Option<Rect>> {
-    place(view, left, false, widths, room, taken)
+    place(view, Anchor::Corner { left }, false, widths, room, taken)
 }
 
 /// `place_column`'s rows up from a bottom corner, over what they would overlap, within the view's
@@ -442,12 +442,83 @@ pub fn place_column_up(
     room: f32,
     taken: &mut Vec<Rect>,
 ) -> Vec<Option<Rect>> {
-    place(view, left, true, widths, room, taken)
+    place(view, Anchor::Corner { left }, true, widths, room, taken)
+}
+
+/// Half the hotbar's width, in GUI pixels (`Gui.extractItemHotbar`'s 182).
+const HOTBAR_HALF: f32 = 91.0;
+/// GUI px kept between the hotbar (or what sits at its ends) and the rows beside it.
+const HOTBAR_GAP: f32 = 4.0;
+/// The hotbar's height: what sits at its ends (the off hand's slot, the attack indicator) is
+/// pushed past within it.
+const HOTBAR_HEIGHT: f32 = 22.0;
+/// The least room a side beside the hotbar needs for its rows; a narrower view keeps the corners.
+const BESIDE_LEAST: f32 = 48.0;
+
+/// Where the rows beside the hotbar start on each side, `[left column's right edge, right
+/// column's left edge]`: past the hotbar and whatever in `taken` sits at its ends, or `None` when
+/// the view leaves either side too little room and the rows keep to the corners.
+pub fn hotbar_edges(view: [f32; 2], taken: &[Rect]) -> Option<[f32; 2]> {
+    let center = (view[0] / 2.0).floor();
+    let band = view[1] - HOTBAR_HEIGHT;
+    let in_band = |r: &&Rect| r[1] + r[3] > band && r[1] < view[1];
+    let mut left = center - HOTBAR_HALF - HOTBAR_GAP;
+    while let Some(r) = taken
+        .iter()
+        .filter(in_band)
+        .find(|r| r[0] < left && r[0] + r[2] > left - HOTBAR_GAP)
+    {
+        left = r[0] - HOTBAR_GAP;
+    }
+    let mut right = center + HOTBAR_HALF + HOTBAR_GAP;
+    while let Some(r) = taken
+        .iter()
+        .filter(in_band)
+        .find(|r| r[0] + r[2] > right && r[0] < right + HOTBAR_GAP)
+    {
+        right = r[0] + r[2] + HOTBAR_GAP;
+    }
+    let roomy = left - MARGIN >= BESIDE_LEAST && view[0] - MARGIN - right >= BESIDE_LEAST;
+    roomy.then_some([left, right])
+}
+
+/// A column's rows up from the bottom of the view beside the hotbar, from `edge` (from
+/// `hotbar_edges`) towards the view's side, within the view's lower half: the first row is the
+/// lowest. A row is cut to the room the side leaves, and steps up past what it would overlap.
+pub fn place_beside_hotbar(
+    view: [f32; 2],
+    left: bool,
+    edge: f32,
+    widths: &[f32],
+    taken: &mut Vec<Rect>,
+) -> Vec<Option<Rect>> {
+    let room = if left {
+        edge - MARGIN
+    } else {
+        view[0] - MARGIN - edge
+    };
+    place(
+        view,
+        Anchor::Beside { left, edge },
+        true,
+        widths,
+        room,
+        taken,
+    )
+}
+
+/// What a column's rows line up against.
+#[derive(Clone, Copy)]
+enum Anchor {
+    /// The view's left or right edge.
+    Corner { left: bool },
+    /// A line beside the hotbar: the left column's rows end at it, the right's start at it.
+    Beside { left: bool, edge: f32 },
 }
 
 fn place(
     view: [f32; 2],
-    left: bool,
+    anchor: Anchor,
     up: bool,
     widths: &[f32],
     room: f32,
@@ -458,7 +529,11 @@ fn place(
     } else {
         MARGIN
     };
-    let most = row_room(view[0]);
+    // The widest a row goes, and how high rows going up may reach (a share of the view).
+    let (most, top) = match anchor {
+        Anchor::Corner { .. } => (row_room(view[0]), 0.75),
+        Anchor::Beside { .. } => (room, 0.5),
+    };
     widths
         .iter()
         .map(|&width| {
@@ -472,17 +547,18 @@ fn place(
                 vec![whole]
             };
             let rect = |width: f32, at: f32| {
-                let x = if left {
-                    MARGIN
-                } else {
-                    view[0] - MARGIN - width
+                let x = match anchor {
+                    Anchor::Corner { left: true } => MARGIN,
+                    Anchor::Corner { left: false } => view[0] - MARGIN - width,
+                    Anchor::Beside { left: true, edge } => edge - width,
+                    Anchor::Beside { left: false, edge } => edge,
                 };
                 [x, at, width, ROW_HEIGHT]
             };
             let mut at = y;
             loop {
                 let outside = if up {
-                    at < view[1] * 0.75
+                    at < view[1] * top
                 } else {
                     at + ROW_HEIGHT > view[1] * 0.75
                 };
@@ -793,6 +869,29 @@ mod tests {
         assert_eq!(left[1], Some([2.0, 14.0, 30.0, 11.0]));
         let right = place_column([200.0, 200.0], false, &[40.0], f32::INFINITY, &mut taken);
         assert_eq!(right[0], Some([158.0, 2.0, 40.0, 11.0]));
+    }
+
+    #[test]
+    fn rows_beside_the_hotbar_rise_past_the_off_hand_and_keep_to_the_corners_when_narrow() {
+        // A 427 x 240 view: the hotbar, the off hand's slot left of it, the hearts above it.
+        let view = [427.0, 240.0];
+        let hud = vec![
+            [122.0, 218.0, 182.0, 22.0],
+            [93.0, 217.0, 29.0, 24.0],
+            [122.0, 199.0, 81.0, 9.0],
+        ];
+        let [left, right] = hotbar_edges(view, &hud).unwrap();
+        assert_eq!((left, right), (89.0, 308.0));
+        let mut taken = hud.clone();
+        let rows = place_beside_hotbar(view, true, left, &[60.0, 60.0], &mut taken);
+        assert_eq!(rows[0], Some([29.0, 227.0, 60.0, 11.0]));
+        assert_eq!(rows[1], Some([29.0, 215.0, 60.0, 11.0]));
+        // Wider than its side: cut to the room up to the view's margin.
+        let rows = place_beside_hotbar(view, false, right, &[300.0], &mut taken);
+        assert_eq!(rows[0], Some([308.0, 227.0, 117.0, 11.0]));
+        // A 320 wide view leaves the off hand's side 34 px: the rows keep to the corners.
+        let narrow = vec![[69.0, 218.0, 182.0, 22.0], [40.0, 217.0, 29.0, 24.0]];
+        assert_eq!(hotbar_edges([320.0, 240.0], &narrow), None);
     }
 
     #[test]

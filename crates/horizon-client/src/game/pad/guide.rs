@@ -6,7 +6,7 @@ use super::super::{Game, Screen};
 use horizon_client::actions::Action;
 use horizon_client::{
     first_person::Hand,
-    gamepad::{GuideDetail, Rect},
+    gamepad::{GuideDetail, GuidePlace, Rect},
     gameplay_guide::{self, Active, Facts, MenuFacts, Row, Target, Under, Verb},
     hud::HudBatch,
     hud_kit::hint::{self, HintRow, Look, Side},
@@ -21,6 +21,15 @@ pub(in crate::game) struct Shown {
     left: bool,
     row: Row,
     rect: Rect,
+}
+
+/// Where a guide column's rows line up.
+#[derive(Clone, Copy)]
+enum Place {
+    /// A corner of the view: the top ones, or the bottom ones going `up`.
+    Corner { up: bool },
+    /// Beside the hotbar, from this edge (`gameplay_guide::hotbar_edges`) out to the view's side.
+    Beside(f32),
 }
 
 /// A drawn quad covering this much of the view is the screen's dimming, not something to avoid.
@@ -105,10 +114,21 @@ impl Game<'_> {
         taken: &mut Vec<Rect>,
     ) {
         let view = batch.width;
+        // In play, beside the hotbar where the view leaves room on both sides; an inventory's rows
+        // (`up`) keep to its bottom corners.
+        let beside = (!up && self.settings.controller.guide_place == GuidePlace::Hotbar)
+            .then(|| gameplay_guide::hotbar_edges([view, batch.height], taken))
+            .flatten();
+        if let Some([left, right]) = beside {
+            self.draw_guide_column(batch, false, Place::Beside(right), &guide.right, taken, 0.0);
+            self.draw_guide_column(batch, true, Place::Beside(left), &guide.left, taken, 0.0);
+            return;
+        }
         let right = gameplay_guide::row_room(view);
-        let widest = self.draw_guide_column(batch, false, up, &guide.right, taken, right);
+        let corner = Place::Corner { up };
+        let widest = self.draw_guide_column(batch, false, corner, &guide.right, taken, right);
         let left = gameplay_guide::left_room(view, widest);
-        self.draw_guide_column(batch, true, up, &guide.left, taken, left);
+        self.draw_guide_column(batch, true, corner, &guide.left, taken, left);
     }
 
     /// What's drawn since vertex `from`, minus what fills the view: what rows keep off.
@@ -214,7 +234,7 @@ impl Game<'_> {
         &mut self,
         batch: &mut HudBatch,
         left: bool,
-        up: bool,
+        place: Place,
         rows: &[Row],
         taken: &mut Vec<Rect>,
         room: f32,
@@ -228,9 +248,16 @@ impl Game<'_> {
                 HintRow::new(glyphs, horizon_client::lang::get(r.caption))
             })
             .collect();
-        // Glyphs against the view's edge, captions towards the middle.
+        // In a corner, glyphs against the view's edge and captions towards the middle; beside the
+        // hotbar, glyphs against it and captions out towards the view's side.
+        let outward = matches!(place, Place::Beside(_));
+        let leading = left != outward;
         let look = Look {
-            side: if left { Side::Leading } else { Side::Trailing },
+            side: if leading {
+                Side::Leading
+            } else {
+                Side::Trailing
+            },
             ..hint::GUIDE
         };
         let atlas = &self.gui.atlas;
@@ -239,10 +266,16 @@ impl Game<'_> {
             .map(|h| hint::plated_width(atlas, h, &look))
             .collect();
         let view = [batch.width, batch.height];
-        let places = if up {
-            gameplay_guide::place_column_up(view, left, &widths, room, taken)
-        } else {
-            gameplay_guide::place_column(view, left, &widths, room, taken)
+        let places = match place {
+            Place::Corner { up: true } => {
+                gameplay_guide::place_column_up(view, left, &widths, room, taken)
+            }
+            Place::Corner { up: false } => {
+                gameplay_guide::place_column(view, left, &widths, room, taken)
+            }
+            Place::Beside(edge) => {
+                gameplay_guide::place_beside_hotbar(view, left, edge, &widths, taken)
+            }
         };
         // The player's text background (Accessibility), as chat's: black at its opacity.
         let alpha = (self.settings.text_background(0.4) >> 24) as u8;
@@ -256,7 +289,7 @@ impl Game<'_> {
             let line = line.fitted(atlas, &look, rect[2] - hint::PAD);
             let [x, y, w, h] = rect;
             let shown = hint::plated_width(atlas, &line, &look);
-            let x = if left { x } else { x + w - shown };
+            let x = if leading { x } else { x + w - shown };
             // The glyphs' art reaches a pixel above its row, into the gap: rows meet, not overlap.
             let plate = Plate::Backing { alpha };
             hint::draw_plated(batch, atlas, &line, &look, plate, [x, y, shown, h]);
